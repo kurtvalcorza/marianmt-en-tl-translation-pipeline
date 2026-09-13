@@ -1,0 +1,50 @@
+{
+  "format": "dimer_hf_snapshot",
+  "formatVersion": 1,
+  "modelKey": "opus-mt-en-tl",
+  "modelId": "Helsinki-NLP/opus-mt-en-tl",
+  "revision": "e46e1761492cb6a6fb9515a72bb55ca654815ca5",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 839,
+      "sha256": "debb5b41e6d8c18590466ce0c3b9bcfc3634f14454cac8f66b71dd3dcb36a58e"
+    },
+    {
+      "path": "config.json",
+      "bytes": 1361,
+      "sha256": "f7c975ff86205d2e19e4a2fa93dd8cd124a707ab567f4044173fd9cda895d1aa"
+    },
+    {
+      "path": "generation_config.json",
+      "bytes": 293,
+      "sha256": "2e6d06b221eee26979f89f53735306f4e3d927808cc61a062218936729c4329a"
+    },
+    {
+      "path": "pytorch_model.bin",
+      "bytes": 296434867,
+      "sha256": "e418d573a717b2c81eaa3a80c8eb68f203c14c6b734dd36d41708c1369d0eb44"
+    },
+    {
+      "path": "source.spm",
+      "bytes": 826681,
+      "sha256": "feaf3e0cf579e3daeb6bac5dc94b906efed40e89b544d269cec9bdbb4f05f8e1"
+    },
+    {
+      "path": "target.spm",
+      "bytes": 834725,
+      "sha256": "e26d20a4aae1e82aaab382ff47ad8b587d03d1087e295d4c51ff71d63427e059"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "bytes": 42,
+      "sha256": "5ee0a3aea386b802c612ef5cce6f77fa4271ccb01b64dce0e4aca14725203ee1"
+    },
+    {
+      "path": "vocab.json",
+      "bytes": 1324714,
+      "sha256": "43bf29e5d430061afa7d978d68c09683dc95650959607ae74eaaf5471285df57"
+    }
+  ],
+  "totalBytes": 299423522
+}

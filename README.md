@@ -1,14 +1,59 @@
-# marianmt-en-tl-translation-pipeline
+# MarianMT EN→TL Translation Pipeline
 
-DIMER pipeline scaffold for **Helsinki-NLP/opus-mt-en-tl** — Machine translation English -> Tagalog.
+DIMER-oriented inference wrapper for **Helsinki-NLP/opus-mt-en-tl** (OPUS-MT Marian transformer, English → Tagalog, Apache-2.0), pinned to an immutable Hugging Face revision. The repository exposes batched English-to-Tagalog translation — direction EN→TL only — with beam search by default (the upstream `generation_config.json` setting), a supply-chain check of the local weight snapshot that matters more than usual here because the upstream weight file is a **pickle** (`pytorch_model.bin`, no SafeTensors upstream), and machine-readable provenance.
 
-| | |
-|---|---|
-| Upstream model | [`Helsinki-NLP/opus-mt-en-tl`](https://huggingface.co/Helsinki-NLP/opus-mt-en-tl) |
-| Pinned revision | `e46e1761492cb6a6fb9515a72bb55ca654815ca5` (resolved 2026-09-13) |
-| Upstream license | `apache-2.0` (verified on the Hub 2026-09-13; re-check at the pinned revision before release) |
-| Weight files to stage | `pytorch_model.bin` |
-| Status | scaffold only — no weights downloaded, no pipeline code yet |
+## Upstream alignment
 
-Weights are staged under `weights/` and are git-ignored. This repository follows the
-MODEL_CARD_SPEC 1.1 / NOTEBOOK_SPEC 1.1 conventions used by the other `*-pipeline` repos.
+- Model: `Helsinki-NLP/opus-mt-en-tl`
+- Revision: `e46e1761492cb6a6fb9515a72bb55ca654815ca5`
+- Upstream weight license: Apache-2.0
+- Upstream task: machine translation, source `en`, target `tl` (`tokenizer_config.json`); `transformer-align` model trained on the `opus+bt` dataset, SentencePiece pre-processing (pinned README)
+- Repository adaptation: **none**; inference only
+
+## Quick start
+
+```python
+from marianmt_translation_pipeline import MarianMTTranslationPipeline
+
+pipe = MarianMTTranslationPipeline.from_pretrained()   # verifies weights/opus-mt-en-tl first (incl. the pickle's SHA-256)
+result = pipe.translate(["The house is wonderful.", "Where is the nearest hospital?"])
+for item in result["translations"]:
+    print(item["source"], "->", item["text"])   # CPU smoke: 'Ang bahay ay kahanga - hanga.' / 'Nasaan ang pinakamalapit na ospital?'
+```
+
+`translate(texts, *, max_new_tokens=128, num_beams=4)` takes 1..16 non-empty English strings (`MAX_BATCH`) of at most 4,000 characters each (`MAX_TEXT_CHARS`) that tokenise to at most 512 SentencePiece tokens including `</s>` (`MAX_INPUT_TOKENS`; longer inputs are rejected, not truncated), `max_new_tokens` in 1..512 (`MAX_NEW_TOKENS`) and `num_beams` in 1..8 (`MAX_NUM_BEAMS`; the default 4 is the snapshot's `generation_config.json` value). The result carries one `translations` entry per input, in order — `source`, `text`, `input_tokens`, `generated_tokens`, `stopped_by` (`eos` or `max_new_tokens`) — plus `n`, `direction` (`en->tl`), the `generation` settings (`max_new_tokens`, `num_beams`, `do_sample=False`, `decision_rule`), `device`, `source`, `model_id` and `model_revision`. No metric helper ships: BLEU/chrF need reference translations the caller must supply.
+
+## Weights layout
+
+```
+weights/opus-mt-en-tl/
+  config.json  generation_config.json  pytorch_model.bin  source.spm  target.spm  tokenizer_config.json  vocab.json
+  README.md  dimer-base-manifest.json  (no model.safetensors upstream at this revision)
+```
+
+`from_pretrained()` calls `stage_missing_files()` (fetches absent manifest entries at the pinned revision, only with `allow_download=True`) then `verify_snapshot()` (size + SHA-256 of every entry — including the 296 MB pickle — before `torch` is imported), and loads `MarianMTModel` with `use_safetensors=False`, `weights_only=True`, `local_files_only=True` and `trust_remote_code=False`, so `transformers` deserialises the pickle through `torch.load(weights_only=True)` (observed in the smoke: two calls, both `weights_only=True`). `MarianTokenizer` reads `source.spm`/`target.spm`/`vocab.json` (needs `sentencepiece`, pinned). Without a manifest it raises unless `allow_download=True`. See `docs/WEIGHTS.md`.
+
+`sacremoses` is not a dependency of this repository: `MarianTokenizer` then warns `Recommended: pip install sacremoses.` once and skips the optional source-side Moses punctuation normalisation (the normaliser is the identity function); the smoke ran in that configuration.
+
+## Tests
+
+```
+pip install -e . --no-deps
+pytest -q -o addopts= tests
+```
+
+Tests are offline: they use an injected fake runner and token counter plus temporary manifests, never the weights.
+
+## Tutorial
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/tutorials/marianmt_translation_colab.ipynb)
+
+`tutorials/marianmt_translation_colab.ipynb` is declared `TASK-INFERENCE` under DIMER Notebook Specification 1.1 and is **standalone** (§3.6): generated by `tools/build_notebook.py`, it carries the pipeline module, model identity, manifest digests and runtime pins, so the exported notebook runs without this repository (parity enforced by `tests/test_notebook_parity.py`; see `tutorials/README.md`). Its default path authors three English sentences in code (no download), surfaces the ceilings and `DECISION_RULE` and validates the batch into an input manifest with `validate_inputs` before any model work, stages the git-ignored `pytorch_model.bin` with `stage_missing_files(..., allow_download=True)`, digest-verifies the snapshot with `verify_snapshot` and says in the model cell that the checkpoint is a pickle pinned by SHA-256 and loaded with `weights_only=True`, translates through `MarianMTTranslationPipeline.translate` with explicit `max_new_tokens`/`num_beams`, reads `stopped_by` and the token counts with their semantics (beam search, no probability or score, no threshold), writes an `evaluation_report` whose verdict is always `not-measurable`, and exports a CSV plus JSON provenance. No metric is reported: the repository ships no metric helper and the sample has no reference translations. BYOD is optional and gated off by default. See `docs/release-verification.md` for the release gate.
+
+## Release status
+
+**Candidate.** Static/unit checks do not constitute clean-runtime notebook evidence. The clean-runtime run of the tutorial is pending; complete `docs/release-verification.md` against the exact release revision before calling the notebook release-grade. See `STATUS.md`.
+
+## Licensing
+
+This repository's code is Apache-2.0 (`LICENSE`). The packaged upstream weights are Apache-2.0; see `docs/WEIGHTS.md` and `MODEL_CARD.md`.
