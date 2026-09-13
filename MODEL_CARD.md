@@ -3,6 +3,8 @@ license: apache-2.0
 model_card_spec: "1.1"
 pipeline_tag: translation
 base_model: Helsinki-NLP/opus-mt-en-tl
+date_published: "2020-02-26"
+date_published_source: "OPUS-MT release archive opus+bt-2020-02-26.zip cited in the pinned upstream README (MODEL_CARD_SPEC 1.1 §3.1); Hub history begins 2020-05-06"
 ---
 
 # OPUS-MT en-tl (DIMER package v0.1.0) — Marian Transformer (English→Tagalog Translation)
@@ -11,7 +13,6 @@ base_model: Helsinki-NLP/opus-mt-en-tl
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-Helsinki--NLP%2FOPUS--MT--train-181717?style=flat&logo=github&logoColor=white)](https://github.com/Helsinki-NLP/OPUS-MT-train)
 [![arXiv Paper](https://img.shields.io/badge/arXiv-1804.00344-b31b1b.svg)](https://arxiv.org/abs/1804.00344)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Pipeline](https://img.shields.io/badge/Pipeline-marianmt--en--tl--translation--pipeline-2ea44f?style=flat&logo=github)](https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline)
 
 > [!WARNING]
 > ⚠️ **Provided for research, training, and evaluation purposes only.** Model weights are redistributed unmodified under their upstream license, which controls your use, including any commercial use or redistribution; the accompanying code and notebooks are released under this repository's license. All of it is supplied **"as is"**, without warranty of any kind, and has not been validated for production, clinical, or safety-critical use. Running the notebooks downloads third-party weights and datasets governed by their own licenses and consumes compute on your own Colab/Kaggle account. To the maximum extent permitted by law, the maintainers of this repository and the DIMER platform accept no liability for any damages arising from their use. Hosting implies no affiliation with or endorsement by the original authors.
@@ -28,7 +29,7 @@ This pipeline provides a ready-to-run interactive Google Colab notebook that exe
 
 ---
 
-###### Description
+#### Description
 
 `Helsinki-NLP/opus-mt-en-tl` is an OPUS-MT machine-translation model for English→Tagalog released by the Helsinki-NLP group on 2020-02-26 (pinned README: `opus+bt-2020-02-26.zip`) and converted to the `MarianMTModel` class of `transformers`, pinned here to revision `e46e1761492cb6a6fb9515a72bb55ca654815ca5`. Read from the snapshot `config.json`, it is a small encoder-decoder Transformer of the `transformer-align` type trained with Marian NMT (Junczys-Dowmunt et al., 2018): 6 encoder and 6 decoder layers, `d_model` 512, 8 attention heads, feed-forward width 2048, swish activations, static sinusoidal position embeddings, and one 57,373-entry SentencePiece vocabulary shared by encoder and decoder (`source.spm`/`target.spm`, `vocab.json`); roughly 77 M parameters in a 296 MB float32 checkpoint. At inference the encoder reads the source sentence once and the decoder emits one SentencePiece token per step from the pad/start token (57372) until `</s>` (id 0) or a step ceiling, under beam search with 4 beams by default (`generation_config.json`); nothing is adapted, fine-tuned or conditioned beyond the text the caller supplies, and the direction is English→Tagalog only. What this repository adds is packaging: the `MarianMTTranslationPipeline` class in `src/marianmt_translation_pipeline/pipeline.py`, digest verification of the local snapshot (`verify_snapshot`, `stage_missing_files`) — which here guards a **pickle** weight file, since upstream ships no SafeTensors — input validation with named ceilings, batched translation with a fixed output contract, and the `validate_inputs` and `evaluation_report` stage helpers.
 
