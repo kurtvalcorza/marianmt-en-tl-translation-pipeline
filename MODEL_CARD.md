@@ -7,7 +7,7 @@ date_published: "2020-02-26"
 date_published_source: "OPUS-MT release archive opus+bt-2020-02-26.zip cited in the pinned upstream README (MODEL_CARD_SPEC 1.1 §3.1); Hub history begins 2020-05-06"
 ---
 
-# OPUS-MT en-tl (DIMER package v0.1.0) — Marian Transformer (English→Tagalog Translation)
+# OPUS-MT en-tl — Marian Transformer (English→Tagalog Translation)
 
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Helsinki--NLP%2Fopus--mt--en--tl-ffcc4d?style=flat)](https://huggingface.co/Helsinki-NLP/opus-mt-en-tl)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-Helsinki--NLP%2FOPUS--MT--train-181717?style=flat&logo=github&logoColor=white)](https://github.com/Helsinki-NLP/OPUS-MT-train)
