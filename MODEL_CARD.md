@@ -2,6 +2,7 @@
 license: apache-2.0
 model_card_spec: "1.1"
 pipeline_tag: translation
+task: "Others - Machine Translation"
 base_model: Helsinki-NLP/opus-mt-en-tl
 date_published: "2020-02-26"
 date_published_source: "OPUS-MT release archive opus+bt-2020-02-26.zip cited in the pinned upstream README (MODEL_CARD_SPEC 1.1 §3.1); Hub history begins 2020-05-06"
