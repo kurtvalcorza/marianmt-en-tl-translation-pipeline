@@ -133,7 +133,7 @@ A known-failing default path in the supported runtime blocks release (REL11).
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `marianmt_translation_colab.ipynb` (`E2E`) | `__LOCAL_ROW__` | 2026-09-18 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
+| `marianmt_translation_colab.ipynb` (`E2E`) | `6f48054` / `42e030af` | 2026-09-18 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
 | `marianmt_translation_colab.ipynb` (`TASK-INFERENCE`, superseded) | `5df0317` / `c9155c925dfc` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-marianmt-translation` v1) | PASSED — 8/8 code cells, 308.2 s; evidence for the earlier inference-only notebook, not for the `E2E` blob |
 
 ## Recorded executions
@@ -145,7 +145,7 @@ runtime, not general estimates.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| 2026-09-18 | `__LOCAL_ROW__` | Local pre-flight harness (Windows, CPython 3.12.10, CPU float32, `torch 2.14.0+cu130` with `CUDA_VISIBLE_DEVICES=-1`, `transformers 4.57.6`) | `__LOCAL_EXEC__` |
+| 2026-09-18 | `6f48054` / `42e030af` | Local pre-flight harness (Windows, CPython 3.12.10, CPU float32, `torch 2.14.0+cu130` with `CUDA_VISIBLE_DEVICES=-1`, `transformers 4.57.6`) | Default sample path (install skipped, pins pre-installed → three carried modules → inline manifest assert → `stage_missing_files` fetched 0 of 8 entries because the snapshot was pre-staged → `verify_snapshot` 8 files → `from_pretrained` on CPU with one `sacremoses` warning → `fetch_corpus` served from the pre-staged cache after its digest check → 7,741 filtered pairs cut into 1,200 / 200 / 300 with `check_split_disjoint` clean and digests `c5ade2af…` / `07c99289…` / `95119836…` → four dataset refusals → input manifest + `num_beams` refusal probe → `translate` with every sanity check `True` → copy-source baseline → frozen evaluation → `adapt` → validation + test evaluation → six unseen sentences → adapter export → reload parity) | 97.9 s | **PASSED** — 11/11 code cells; copy-source chrF 11.28 / BLEU 0.0; frozen test chrF 56.46 / BLEU 27.13 (11.3 s, 0 outputs at the token ceiling); `adapt` 8,408,064 of 74,037,760 params, 2 epochs, 57.4 s, validation chrF 58.54 → 60.32 → 61.50 (`best_epoch` 2, train loss 1.486 → 1.110); **adapted test chrF 59.36 / BLEU 33.75 (Δ +2.90 / +6.62)**; six unseen sentences chrF 62.66 / BLEU 19.58 `measured-small-sample`; adapter 33,638,224 B / 52 tensors, SHA-256 `c21cf0e5…`; reload parity 8/8; six exports written. Pre-flight; hosted clean-runtime run still required |
 | 2026-09-14 | `5df0317` / `c9155c925dfc` (`TASK-INFERENCE`, superseded) | Kaggle CPU (`kurtvalcorza/dimer-nb2-marianmt-translation` v1) | Default sample path of the inference-only notebook: three synthetic sentences, `stage_missing_files` fetching the pickle from the Hub, `verify_snapshot`, `translate`, `not-measurable` report | 308.2 s | **PASSED** — 8/8 code cells, 18 files, 299 MB staged; does not cover the `E2E` blob |
 
 ## Current status
