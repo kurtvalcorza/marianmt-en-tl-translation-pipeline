@@ -16,3 +16,4 @@ weights/**/*.pth
 weights/**/*.onnx
 weights/**/*.h5
 weights/**/.cache/
+weights/tatoeba-en-tl/

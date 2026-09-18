@@ -88,7 +88,7 @@ def test_validate_inputs_rejects_like_translate() -> None:
         validate_inputs([ONE], names=["a", "b"])
 
 
-def test_evaluation_report_is_always_not_measurable() -> None:
+def test_evaluation_report_is_not_measurable_without_references() -> None:
     report = evaluation_report(_result())
     assert report["verdict"] == "not-measurable"
     assert report["metrics"] == []
@@ -98,17 +98,20 @@ def test_evaluation_report_is_always_not_measurable() -> None:
     assert report["sample_kind"] == "synthetic"
     assert report["task"] == "machine translation en->tl"
     assert "no reference translations" in report["reason"]
-    assert "BLEU/chrF" in report["needs"]
+    assert "chrF/BLEU" in report["needs"]
     assert DECISION_RULE in report["score_semantics"]
     assert (report["model_id"], report["model_revision"]) == (MODEL_ID, MODEL_REVISION)
 
 
-def test_evaluation_report_stays_not_measurable_when_references_are_supplied() -> None:
+def test_evaluation_report_scores_supplied_references_and_labels_small_samples() -> None:
     report = evaluation_report(
         _result((3, 4), num_beams=1), ["Maganda ang bahay.", "Magandang umaga."], sample_kind="BYOD upload"
     )
-    assert report["verdict"] == "not-measurable"
-    assert report["metrics"] == []
+    assert report["verdict"] == "measured-small-sample"
+    assert [m["name"] for m in report["metrics"]] == ["chrf", "bleu"]
+    assert all(0.0 <= m["value"] <= 100.0 for m in report["metrics"])
     assert report["sample_kind"] == "BYOD upload"
     assert report["n_generated_tokens"] == 7
-    assert "a handful of references is not a dispersion" in report["reason"]
+    assert "no dispersion estimate" in report["reason"]
+    with pytest.raises(ValueError, match="one entry per translation"):
+        evaluation_report(_result(), ["only one"])

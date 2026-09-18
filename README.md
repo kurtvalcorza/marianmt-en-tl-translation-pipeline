@@ -1,6 +1,6 @@
 # MarianMT EN→TL Translation Pipeline
 
-DIMER-oriented inference wrapper for **Helsinki-NLP/opus-mt-en-tl** (OPUS-MT Marian transformer, English → Tagalog, Apache-2.0), pinned to an immutable Hugging Face revision. The repository exposes batched English-to-Tagalog translation — direction EN→TL only — with beam search by default (the upstream `generation_config.json` setting), a supply-chain check of the local weight snapshot that matters more than usual here because the upstream weight file is a **pickle** (`pytorch_model.bin`, no SafeTensors upstream), and machine-readable provenance.
+DIMER-oriented inference and fine-tuning wrapper for **Helsinki-NLP/opus-mt-en-tl** (OPUS-MT Marian transformer, English → Tagalog, Apache-2.0), pinned to an immutable Hugging Face revision. The repository exposes batched English-to-Tagalog translation — direction EN→TL only — with beam search by default (the upstream `generation_config.json` setting), a supply-chain check of the local weight snapshot that matters more than usual here because the upstream weight file is a **pickle** (`pytorch_model.bin`, no SafeTensors upstream), machine-readable provenance, and a bounded adaptation contract: a digest-pinned real parallel corpus (Tatoeba en–tl via OPUS), corpus chrF and BLEU with a copy-source baseline, supervised fine-tuning of the last decoder blocks with validation-chrF epoch selection, and a safetensors adapter that reloads onto the digest-verified base.
 
 ## Upstream alignment
 
@@ -8,7 +8,7 @@ DIMER-oriented inference wrapper for **Helsinki-NLP/opus-mt-en-tl** (OPUS-MT Mar
 - Revision: `e46e1761492cb6a6fb9515a72bb55ca654815ca5`
 - Upstream weight license: Apache-2.0
 - Upstream task: machine translation, source `en`, target `tl` (`tokenizer_config.json`); `transformer-align` model trained on the `opus+bt` dataset, SentencePiece pre-processing (pinned README)
-- Repository adaptation: **none**; inference only
+- Repository adaptation: bounded supervised fine-tuning of the last *k* decoder blocks (`adapt`, default 2 of 6 = 8,408,064 of 74,037,760 parameters) on caller-supplied or pinned Tatoeba pairs; the encoder, embeddings and vocabulary are never modified; the adapter carries only the trained tensors and is bound to the base pickle's SHA-256
 
 ## Quick start
 
@@ -21,7 +21,24 @@ for item in result["translations"]:
     print(item["source"], "->", item["text"])   # CPU smoke: 'Ang bahay ay kahanga - hanga.' / 'Nasaan ang pinakamalapit na ospital?'
 ```
 
-`translate(texts, *, max_new_tokens=128, num_beams=4)` takes 1..16 non-empty English strings (`MAX_BATCH`) of at most 4,000 characters each (`MAX_TEXT_CHARS`) that tokenise to at most 512 SentencePiece tokens including `</s>` (`MAX_INPUT_TOKENS`; longer inputs are rejected, not truncated), `max_new_tokens` in 1..512 (`MAX_NEW_TOKENS`) and `num_beams` in 1..8 (`MAX_NUM_BEAMS`; the default 4 is the snapshot's `generation_config.json` value). The result carries one `translations` entry per input, in order — `source`, `text`, `input_tokens`, `generated_tokens`, `stopped_by` (`eos` or `max_new_tokens`) — plus `n`, `direction` (`en->tl`), the `generation` settings (`max_new_tokens`, `num_beams`, `do_sample=False`, `decision_rule`), `device`, `source`, `model_id` and `model_revision`. No metric helper ships: BLEU/chrF need reference translations the caller must supply.
+Adaptation on the pinned Tatoeba sample (CPU, about two minutes of model time after the snapshot is staged):
+
+```python
+from marianmt_translation_pipeline import (
+    MarianMTTranslationPipeline, copy_source_baseline, fetch_sample_dataset, check_split_disjoint,
+)
+
+splits = fetch_sample_dataset()            # one pinned 312 KB zip from OPUS, digest-verified, cached under weights/tatoeba-en-tl/
+check_split_disjoint(splits)               # 1,200 / 200 / 300 records, no source shared between splits
+pipe = MarianMTTranslationPipeline.from_pretrained()
+print(copy_source_baseline(splits['test'])['chrf'], pipe.evaluate(splits['test'])['chrf'])   # 11.28, 56.46 in the recorded run
+pipe.adapt(splits['train'], splits['validation'])                                            # last 2 decoder blocks, 2 epochs, best validation chrF kept
+print(pipe.evaluate(splits['test'])['chrf'])                                                 # 59.36 in the recorded run
+artifact = pipe.save_artifact('outputs/adapter')                                             # adapter.safetensors (33.6 MB) + manifest.json
+again = MarianMTTranslationPipeline.from_artifact(artifact)                                  # verifies base digest + artifact digest before applying
+```
+
+`translate(texts, *, max_new_tokens=128, num_beams=4)` takes 1..16 non-empty English strings (`MAX_BATCH`) of at most 4,000 characters each (`MAX_TEXT_CHARS`) that tokenise to at most 512 SentencePiece tokens including `</s>` (`MAX_INPUT_TOKENS`; longer inputs are rejected, not truncated), `max_new_tokens` in 1..512 (`MAX_NEW_TOKENS`) and `num_beams` in 1..8 (`MAX_NUM_BEAMS`; the default 4 is the snapshot's `generation_config.json` value). The result carries one `translations` entry per input, in order — `source`, `text`, `input_tokens`, `generated_tokens`, `stopped_by` (`eos` or `max_new_tokens`) — plus `n`, `direction` (`en->tl`), the `generation` settings (`max_new_tokens`, `num_beams`, `do_sample=False`, `decision_rule`), `device`, `source`, `model_id` and `model_revision`. `evaluate(records)` scores a validated `{id, source, target}` dataset with corpus chrF and BLEU (own implementations in `metrics.py`, sacrebleu-style, not sacrebleu-identical); `evaluation_report(result, references)` scores supplied references (`measured` / `measured-small-sample`) and still returns `not-measurable` without them; `adapt(train, val, *, epochs=2, lr=1e-4, batch_size=16, trainable_decoder_layers=2, seed=0)` fine-tunes the last decoder blocks and keeps the best-validation-chrF epoch; `save_artifact` / `from_artifact` export and reload the trained tensors as safetensors with a manifest bound to the base weight digest. Dataset helpers (`fetch_corpus`, `build_sample_dataset`, `validate_dataset`, `split_dataset`, `check_split_disjoint`, `load_byod_dataset`, `write_dataset_csv`) live in `samples.py`; records are 8–20,000 `{id, source, target}` mappings and every ceiling is a refusal, never a silent cut, except the 128-piece truncation applied to training pairs only.
 
 ## Weights layout
 
@@ -42,17 +59,17 @@ pip install -e . --no-deps
 pytest -q -o addopts= tests
 ```
 
-Tests are offline: they use an injected fake runner and token counter plus temporary manifests, never the weights.
+Tests are offline: they use an injected fake runner, token counter and corpus fetcher plus temporary manifests, never the weights (35 tests). `tests/test_model_backed.py` (2 tests: `evaluate` against references, a one-epoch adaptation of the last decoder block with an artifact round trip) runs only when `weights/opus-mt-en-tl/` is staged.
 
 ## Tutorial
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/tutorials/marianmt_translation_colab.ipynb)
 
-`tutorials/marianmt_translation_colab.ipynb` is declared `TASK-INFERENCE` under DIMER Notebook Specification 1.1 and is **standalone** (§3.6): generated by `tools/build_notebook.py`, it carries the pipeline module, model identity, manifest digests and runtime pins, so the exported notebook runs without this repository (parity enforced by `tests/test_notebook_parity.py`; see `tutorials/README.md`). Its default path authors three English sentences in code (no download), surfaces the ceilings and `DECISION_RULE` and validates the batch into an input manifest with `validate_inputs` before any model work, stages the git-ignored `pytorch_model.bin` with `stage_missing_files(..., allow_download=True)`, digest-verifies the snapshot with `verify_snapshot` and says in the model cell that the checkpoint is a pickle pinned by SHA-256 and loaded with `weights_only=True`, translates through `MarianMTTranslationPipeline.translate` with explicit `max_new_tokens`/`num_beams`, reads `stopped_by` and the token counts with their semantics (beam search, no probability or score, no threshold), writes an `evaluation_report` whose verdict is always `not-measurable`, and exports a CSV plus JSON provenance. No metric is reported: the repository ships no metric helper and the sample has no reference translations. BYOD is optional and gated off by default. See `docs/release-verification.md` for the release gate.
+`tutorials/marianmt_translation_colab.ipynb` is declared `E2E` (mode `GUIDED`) under DIMER Notebook Specification 2.0 and is **standalone** (§4): generated by `tools/build_notebook.py`, it carries the three pipeline modules, model identity, manifest digests and runtime pins, so the exported notebook runs without this repository (parity enforced by `tests/test_notebook_parity.py`; see `tutorials/README.md`). Its default path fetches one pinned Tatoeba en–tl zip from OPUS (312 KB, CC BY 2.0 FR, refused on any digest mismatch) and cuts it into 1,200 / 200 / 300 source-disjoint records with four refusal probes, stages the git-ignored `pytorch_model.bin` with `stage_missing_files(..., allow_download=True)` and digest-verifies it before the pickle is opened with `weights_only=True`, exercises the inference contract with its input manifest and sanity checks, scores the copy-source baseline and the frozen model on the test split (chrF 11.28 / 56.46 in the recorded run), fine-tunes the last two decoder blocks for two epochs with validation-chrF epoch selection (56 s on CPU), re-scores the test split (chrF 59.36, BLEU 27.13 → 33.75), translates six unseen sentences with a `measured-small-sample` report, exports a 33.6 MB safetensors adapter and reloads it with 8/8 identical translations. Every number is one seeded split with no dispersion estimate. BYOD (`{id, source, target}` CSV / JSON / JSONL) is optional and gated off by default. See `docs/release-verification.md` for the release gate.
 
 ## Release status
 
-**Candidate.** Static/unit checks do not constitute clean-runtime notebook evidence. The clean-runtime run of the tutorial is pending; complete `docs/release-verification.md` against the exact release revision before calling the notebook release-grade. See `STATUS.md`.
+**Candidate** — the notebook source passes all static checks and one local CPU pre-flight execution of the committed blob is recorded; a clean run in a supported hosted runtime is still required (see `STATUS.md` and `docs/release-verification.md`). The earlier inference-only notebook's Kaggle pass does not carry over to the `E2E` blob.
 
 ## Licensing
 
