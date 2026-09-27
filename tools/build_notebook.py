@@ -4,6 +4,8 @@
 /2 adds to /1: multi-module packages (one tagged cell per module, topologically ordered, package-relative
 imports removed), template-declared rewrite rules, and extra pinned snapshots (`extra_weights`) for packages
 that stage more than one manifest. Single-module templates render as in /1 except for the generator version.
+Optional guided-layer keys (`notebook_spec`, `lede`, `orientation`, `infrastructure_note`; NOTEBOOK_SPEC 2.2
+§3.5) change the output only for a template that sets them.
 
 Usage (from the repository root, or with --repo):
     python tools/build_notebook.py            # write tutorials/<notebook_name>
@@ -69,6 +71,50 @@ if not SKIP_INSTALL:
         raise RuntimeError('Core dependencies changed while older modules were loaded: ' + '; '.join(stale) + '. Restart the runtime, then rerun from the top.')
 '''
 
+# Opt-in (`install_guard: "hosted-preload-aware"`): the same fail-closed guard, made compatible with one-pass Run all
+# on hosted kernels (NOTEBOOK_SPEC RUN10). Colab and Kaggle import NumPy when the kernel starts, and cuda-bindings 12.9
+# ships a .pth file that imports a private redirector module at interpreter start-up; with the guard above, either one
+# forces a manual restart even though neither is code the tutorial has used yet.
+_INSTALL_GUARD_HOSTED = '''
+def _installed_version(distribution):
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+# Hosted kernels (Colab, Kaggle) import NumPy when the kernel starts. Replacing a NumPy that is already in memory would
+# force a manual restart (NOTEBOOK_SPEC RUN10), so a loaded NumPy 2.x is kept and recorded instead of reinstalled.
+NUMPY_PRELOADED = None
+_numpy_module = sys.modules.get('numpy')
+if _numpy_module is not None and str(getattr(_numpy_module, '__version__', '')).startswith('2.'):
+    NUMPY_PRELOADED = _numpy_module.__version__
+INSTALL_PINS = [f'numpy=={NUMPY_PRELOADED}' if NUMPY_PRELOADED and pin.startswith('numpy==') else pin for pin in PINS]
+
+if not SKIP_INSTALL:
+    # Capture every distribution already imported in this runtime, whatever its module name
+    # (PIL -> pillow), so a pinned install that replaces a loaded package is detected and the
+    # notebook stops with a restart instruction instead of continuing with mixed versions.
+    # Only code actually in memory counts: a top-level module with a file or a loaded submodule. Private start-up
+    # hooks that site-packages .pth files import, and the bare namespace proxies they install (cuda-bindings 12.9's
+    # `_cuda_bindings_redirector` and its lazy `cuda` namespace, observed on Colab and Kaggle GPU images), are not.
+    _module_dists = importlib.metadata.packages_distributions()
+    _parents = {name.partition('.')[0] for name in list(sys.modules) if '.' in name}
+    _in_memory = {name for name, module in list(sys.modules.items()) if '.' not in name and not name.startswith('_') and (getattr(module, '__file__', None) or name in _parents)}
+    _loaded = sorted({d for name in _in_memory for d in _module_dists.get(name, ())})
+    loaded = {distribution: _installed_version(distribution) for distribution in _loaded}
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *INSTALL_PINS], check=True)
+    importlib.invalidate_caches()
+    stale = []
+    for distribution, before in loaded.items():
+        installed = _installed_version(distribution)
+        if before is not None and before != installed:
+            stale.append(f'{distribution}: loaded={before}, installed={installed}')
+    if stale:
+        raise RuntimeError('Core dependencies changed while older modules were loaded: ' + '; '.join(stale) + '. Restart the runtime, then rerun from the top.')
+print({'numpy': f'{NUMPY_PRELOADED} (loaded by the host kernel before this cell; kept)' if NUMPY_PRELOADED else 'pinned install'})
+'''
+_INSTALL_GUARDS = {"default": _INSTALL_GUARD, "hosted-preload-aware": _INSTALL_GUARD_HOSTED}
+
 
 def template_contract() -> dict[str, str]:
     """Keys ``TEMPLATE`` must define (documentation for template authors). Optional keys are marked."""
@@ -99,6 +145,12 @@ def template_contract() -> dict[str, str]:
         "package_dir": "OPTIONAL repository-relative directory of the package (default 'src/<package>'; e.g. 'mitra_pipeline' for a root-level package)",
         "pins_file": "OPTIONAL repository-relative requirements file that REPLACES pyproject dependencies as the inline PINS: one `name==ver` or `name @ git+url@sha` per line; `--index-url URL`, `--extra-index-url URL`, `--find-links URL` lines are honoured (passed to pip in order); comments/blank lines ignored",
         "model_host": "OPTIONAL {name, reference_url, revision_label} for a non-Hub checkpoint host (default: Hugging Face Hub, https://huggingface.co/<MODEL_ID>, 'revision'); the package's own stage_missing_files downloader must fetch from it",
+        # guided-layer keys (NOTEBOOK_SPEC 2.2 §3.5); a template that sets none of them renders exactly as before
+        "notebook_spec": "OPTIONAL spec version the notebook declares (default NOTEBOOK_SPEC); header text and metadata.dimer.notebook_spec",
+        "lede": "OPTIONAL markdown placed under the H1 badges, before the profile block (e.g. the driving question); not str.format-ed",
+        "orientation": "OPTIONAL list of markdown cells inserted between the header and Prerequisites (GDL1–GDL4); not str.format-ed",
+        "install_guard": "OPTIONAL 'default' | 'hosted-preload-aware': the latter keeps a NumPy 2.x the host kernel already loaded and ignores private .pth start-up hooks, so Colab/Kaggle Run all needs no restart (RUN10)",
+        "infrastructure_note": "OPTIONAL markdown callout added under the Section 1–3 headings; also collapses their code cells (metadata.jupyter.source_hidden) (GDL11)",
     }
 
 
@@ -402,14 +454,30 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
     ctx = load_context(repo, template, revision)
     mode, run_all, byod = _declarations(template)
     stem = template["stem"]
+    spec = template.get("notebook_spec", NOTEBOOK_SPEC)
     fmt = {"stem": stem, **{k: ctx[k] for k in ("MODEL_ID", "MODEL_REVISION", "MODEL_LICENSE", "MODEL_KEY")}}
     cells: list[dict[str, Any]] = []
+    infra_note = template.get("infrastructure_note")
 
     def add(cell: dict[str, Any]) -> None:
         cell["id"] = f"{stem}-{len(cells):02d}"
         cells.append(cell)
 
+    def infra_md(source: str) -> dict[str, Any]:
+        """A Section 1–3 markdown cell, with the template's Infrastructure callout under its heading."""
+        if not infra_note:
+            return _md(source)
+        heading, sep, rest = source.partition("\n\n")
+        return _md(f"{heading}\n\n> {infra_note.strip()}{sep}{rest}")
+
+    def infra_code(source: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        """A Section 1–3 code cell, collapsed by default when the template labels infrastructure (GDL11)."""
+        if infra_note:
+            metadata = {**(metadata or {}), "jupyter": {"source_hidden": True}}
+        return _code(source, metadata)
+
     badges = " ".join(f"[![{alt}]({img})]({link})" for alt, img, link in template["badges"])
+    lede = f"{template['lede'].strip()}\n\n" if template.get("lede") else ""
     total_mb = (ctx["manifest"]["totalBytes"] + sum(e["manifest"]["totalBytes"] for e in ctx["extra_weights"])) / 1e6
     n_mod = len(ctx["modules"])
     carried = (
@@ -418,10 +486,10 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         else f"the repository's package ({n_mod} modules under `{ctx['pkg_rel']}/`, at revision `{ctx['module_revision'][:12]}`) verbatim in Section 2"
     )
     header = (
-        f"# {template['title']}\n\n{badges}\n\n"
+        f"# {template['title']}\n\n{badges}\n\n{lede}"
         f"**Profile:** `{template['profile']}`  \n"
         f"**Mode:** `{mode}`  \n"
-        f"**Notebook specification:** DIMER Notebook Specification {NOTEBOOK_SPEC} — **standalone** (§4)  \n"
+        f"**Notebook specification:** DIMER Notebook Specification {spec} — **standalone** (§4)  \n"
         f"**Capability:** {template['capability']}\n\n"
         f"**This notebook is standalone.** It carries {carried}, the pinned model identity and the per-file SHA-256 manifest in Section 3, "
         f"and the exact runtime pins in Section 1, so it keeps working after export even if the repository changes or disappears. Its only "
@@ -435,6 +503,8 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         f"**This notebook does not demonstrate:** {template['exclusions'].strip()}"
     )
     add(_md(header))
+    for section in template.get("orientation", []):
+        add(_md(section))
 
     prereq = list(template["prerequisites"]) + [
         f"- **External access:** {ctx['host']['name']} only, to fetch the pinned `{ctx['MODEL_ID']}` snapshot (~{total_mb:.0f} MB in total) "
@@ -446,7 +516,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
     imports = template["runtime_imports"]
     ident_print = ", ".join(f"'{m}': {m}.__version__" for m in imports)
     add(
-        _md(
+        infra_md(
             "## 1. Install the pinned runtime\n\n"
             "The dependency set is pinned exactly (the same pins as the repository's " + (template.get('pins_file') or 'pyproject.toml') + " at the generating revision; any `--index-url`/`--find-links` lines are passed to pip as written) and "
             "installed directly — there is no repository clone and no package install. If a pin replaces a distribution this runtime has already "
@@ -455,7 +525,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         )
     )
     add(
-        _code(
+        infra_code(
             "import importlib\nimport importlib.metadata\nimport os\nimport platform\nimport subprocess\nimport sys\n\n"
             f"{pins_literal}\n"
             "NOTEBOOK_SOURCE = {\n"
@@ -465,10 +535,10 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             f"    'embedded_modules': {ctx['module_rels']!r},\n"
             f"    'module_sha256': {ctx['module_sha256']!r},\n"
             f"    'generator': {GENERATOR_VERSION!r},\n"
-            f"    'notebook_spec': {NOTEBOOK_SPEC!r},\n"
+            f"    'notebook_spec': {spec!r},\n"
             "}\n"
             "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'\n"
-            f"{_INSTALL_GUARD}\n"
+            f"{_INSTALL_GUARDS[template.get('install_guard', 'default')]}\n"
             f"import {', '.join(imports)}\n"
             f"print({{'notebook_source': NOTEBOOK_SOURCE, 'python': platform.python_version(), {ident_print}, 'cuda': torch.cuda.is_available()}})"
         )
@@ -486,10 +556,10 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
                 "names are already defined by the preceding cells). The repository's parity test (`tests/test_notebook_parity.py`) fails whenever "
                 "these cells and the modules diverge, so what you run here is what the repository tests. Nothing in these cells runs a model yet."
             )
-            add(_md(title + intro + f"\n\n**Module {i + 1}/{n_mod}:** `{rel}`"))
+            add(infra_md(title + intro + f"\n\n**Module {i + 1}/{n_mod}:** `{rel}`"))
         else:
             add(_md(f"**Module {i + 1}/{n_mod}:** `{rel}` (carried verbatim; see the note above)"))
-        add(_code(ctx["embedded"][m], {"dimer": {"embedded_module": rel, "module_sha256": ctx["per_module_sha256"][rel]}}))
+        add(infra_code(ctx["embedded"][m], {"dimer": {"embedded_module": rel, "module_sha256": ctx["per_module_sha256"][rel]}}))
 
     manifest_literal = json.dumps(ctx["manifest"], indent=2, ensure_ascii=False)
     n_files = len(ctx["manifest"]["files"])
@@ -500,7 +570,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         ) + ", carried and verified the same way."
     load_expr = template.get("model_load") or f"{template['pipeline_class']}.from_pretrained(weights_dir=WEIGHTS_DIR)"
     add(
-        _md(
+        infra_md(
             "## 3. Pin, stage and verify the model\n\n"
             f"The model identity is carried twice — `MODEL_ID`/`MODEL_REVISION` in the module above and the `{n_files}`-file manifest below (paths, "
             "byte sizes, SHA-256) — and the cell first asserts they agree. It writes the manifest into the working-directory snapshot, then "
@@ -547,7 +617,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         f"pipe = {load_expr}\n"
         "print({'device': getattr(pipe, 'device', None), 'source': getattr(pipe, 'source', 'local-snapshot')})"
     )
-    add(_code(model_code))
+    add(infra_code(model_code))
 
     for stage in template["cells"]:
         add(_md(stage["md"].format(**fmt)))
@@ -561,7 +631,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             "dimer": {
                 "notebook_profile": template["profile"],
                 "notebook_mode": mode,
-                "notebook_spec": NOTEBOOK_SPEC,
+                "notebook_spec": spec,
                 "standalone": True,
                 "generated_from": {
                     "repository": template["repo_name"],
