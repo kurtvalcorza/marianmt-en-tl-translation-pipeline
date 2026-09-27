@@ -71,6 +71,50 @@ if not SKIP_INSTALL:
         raise RuntimeError('Core dependencies changed while older modules were loaded: ' + '; '.join(stale) + '. Restart the runtime, then rerun from the top.')
 '''
 
+# Opt-in (`install_guard: "hosted-preload-aware"`): the same fail-closed guard, made compatible with one-pass Run all
+# on hosted kernels (NOTEBOOK_SPEC RUN10). Colab and Kaggle import NumPy when the kernel starts, and cuda-bindings 12.9
+# ships a .pth file that imports a private redirector module at interpreter start-up; with the guard above, either one
+# forces a manual restart even though neither is code the tutorial has used yet.
+_INSTALL_GUARD_HOSTED = '''
+def _installed_version(distribution):
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+# Hosted kernels (Colab, Kaggle) import NumPy when the kernel starts. Replacing a NumPy that is already in memory would
+# force a manual restart (NOTEBOOK_SPEC RUN10), so a loaded NumPy 2.x is kept and recorded instead of reinstalled.
+NUMPY_PRELOADED = None
+_numpy_module = sys.modules.get('numpy')
+if _numpy_module is not None and str(getattr(_numpy_module, '__version__', '')).startswith('2.'):
+    NUMPY_PRELOADED = _numpy_module.__version__
+INSTALL_PINS = [f'numpy=={NUMPY_PRELOADED}' if NUMPY_PRELOADED and pin.startswith('numpy==') else pin for pin in PINS]
+
+if not SKIP_INSTALL:
+    # Capture every distribution already imported in this runtime, whatever its module name
+    # (PIL -> pillow), so a pinned install that replaces a loaded package is detected and the
+    # notebook stops with a restart instruction instead of continuing with mixed versions.
+    # Only code actually in memory counts: a top-level module with a file or a loaded submodule. Private start-up
+    # hooks that site-packages .pth files import, and the bare namespace proxies they install (cuda-bindings 12.9's
+    # `_cuda_bindings_redirector` and its lazy `cuda` namespace, observed on Colab and Kaggle GPU images), are not.
+    _module_dists = importlib.metadata.packages_distributions()
+    _parents = {name.partition('.')[0] for name in list(sys.modules) if '.' in name}
+    _in_memory = {name for name, module in list(sys.modules.items()) if '.' not in name and not name.startswith('_') and (getattr(module, '__file__', None) or name in _parents)}
+    _loaded = sorted({d for name in _in_memory for d in _module_dists.get(name, ())})
+    loaded = {distribution: _installed_version(distribution) for distribution in _loaded}
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *INSTALL_PINS], check=True)
+    importlib.invalidate_caches()
+    stale = []
+    for distribution, before in loaded.items():
+        installed = _installed_version(distribution)
+        if before is not None and before != installed:
+            stale.append(f'{distribution}: loaded={before}, installed={installed}')
+    if stale:
+        raise RuntimeError('Core dependencies changed while older modules were loaded: ' + '; '.join(stale) + '. Restart the runtime, then rerun from the top.')
+print({'numpy': f'{NUMPY_PRELOADED} (loaded by the host kernel before this cell; kept)' if NUMPY_PRELOADED else 'pinned install'})
+'''
+_INSTALL_GUARDS = {"default": _INSTALL_GUARD, "hosted-preload-aware": _INSTALL_GUARD_HOSTED}
+
 
 def template_contract() -> dict[str, str]:
     """Keys ``TEMPLATE`` must define (documentation for template authors). Optional keys are marked."""
@@ -105,6 +149,7 @@ def template_contract() -> dict[str, str]:
         "notebook_spec": "OPTIONAL spec version the notebook declares (default NOTEBOOK_SPEC); header text and metadata.dimer.notebook_spec",
         "lede": "OPTIONAL markdown placed under the H1 badges, before the profile block (e.g. the driving question); not str.format-ed",
         "orientation": "OPTIONAL list of markdown cells inserted between the header and Prerequisites (GDL1–GDL4); not str.format-ed",
+        "install_guard": "OPTIONAL 'default' | 'hosted-preload-aware': the latter keeps a NumPy 2.x the host kernel already loaded and ignores private .pth start-up hooks, so Colab/Kaggle Run all needs no restart (RUN10)",
         "infrastructure_note": "OPTIONAL markdown callout added under the Section 1–3 headings; also collapses their code cells (metadata.jupyter.source_hidden) (GDL11)",
     }
 
@@ -493,7 +538,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             f"    'notebook_spec': {spec!r},\n"
             "}\n"
             "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'\n"
-            f"{_INSTALL_GUARD}\n"
+            f"{_INSTALL_GUARDS[template.get('install_guard', 'default')]}\n"
             f"import {', '.join(imports)}\n"
             f"print({{'notebook_source': NOTEBOOK_SOURCE, 'python': platform.python_version(), {ident_print}, 'cuda': torch.cuda.is_available()}})"
         )

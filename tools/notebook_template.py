@@ -40,6 +40,7 @@ TEMPLATE = {
     "profile": "E2E",
     "mode": "GUIDED",
     "notebook_spec": "2.2",
+    "install_guard": "hosted-preload-aware",
     "run_all": (
         "Selecting **Run all** in a fresh supported runtime installs the pinned dependencies, stages and digest-verifies the "
         "pinned OPUS-MT snapshot (a pickle checkpoint pinned by SHA-256 and loaded with `weights_only=True`), fetches the "
@@ -152,9 +153,10 @@ TEMPLATE = {
             "Measured: all cells after the downloads took about four minutes on a workstation CPU (230 s, 2026-09-27); "
             "installation and downloads add time that depends on your network, and a GPU is faster.\n\n"
             "### How to use this notebook\n\n"
-            "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits. If the first cell stops "
-            "with *Restart the runtime, then rerun from the top*, do exactly that once (**Runtime → Restart session**, then "
-            "**Run all** again): it means Colab had different package versions loaded.\n"
+            "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits and no restart: the install "
+            "cell keeps the NumPy that Colab has already loaded. If the first cell ever stops with *Restart the runtime, then "
+            "rerun from the top*, do exactly that once (**Runtime → Restart session**, then **Run all** again): a package "
+            "this notebook pins was already loaded in a different version.\n"
             "2. Cells with a form on the right (`# @param`) are the **knobs**. Leave them at their defaults for the first run. "
             "Afterwards, change one knob and re-run from that cell downwards.\n"
             "3. Sections 1–3 are **Infrastructure**: they install packages, carry the pipeline code and verify the model "
@@ -994,7 +996,7 @@ None of these affects the default path. Change **one** knob, re-run from its cel
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| Section 1 stops with *Restart the runtime, then rerun from the top* | the runtime had different package versions loaded | **Runtime → Restart session**, then **Run all** again; this is expected once on some runtimes |
+| Section 1 stops with *Restart the runtime, then rerun from the top* | a pinned package was already loaded in a different version (not expected on current Colab or Kaggle) | **Runtime → Restart session**, then **Run all** again |
 | Download error or timeout in Section 3 or 4 | network access to huggingface.co or object.pouta.csc.fi | re-run the cell; only missing files are fetched again. The default path needs both hosts |
 | `verify_snapshot` or `fetch_corpus` reports a size or SHA-256 mismatch | a partial or altered download | delete `weights/opus-mt-en-tl/pytorch_model.bin` (or `weights/tatoeba-en-tl/`) and re-run the cell; never bypass the check |
 | One `Recommended: pip install sacremoses.` warning | expected in this environment | nothing to do; see the Environment note |
