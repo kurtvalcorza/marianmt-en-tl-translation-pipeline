@@ -1,6 +1,6 @@
 """Static release-asset validation for the OPUS-MT en-tl (MarianMT) translation DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.0 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2: §4 carrier, §3.5 guided layer), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1–PAR3).
 
@@ -34,6 +34,8 @@ EXPECTED_OUTPUTS = (
     "outputs/marianmt_translation_input_manifest.json",
     "outputs/marianmt_translation_evaluation_report.json",
     "outputs/marianmt_translation_translations.csv",
+    "outputs/marianmt_translation_test_predictions.csv",
+    "outputs/marianmt_translation_probes.csv",
     "outputs/marianmt_translation_adapter",
     "outputs/marianmt_translation_result.json",
 )
@@ -78,7 +80,19 @@ CODE_MARKERS = (
     "'model_license': MODEL_LICENSE",
     "transformers.__version__",
     "'device': pipe.device",
+    # Guided layer (NOTEBOOK_SPEC 2.2 §3.5): paired outputs, meaning checks, controlled activity, conclusion
+    "pretrained_outputs = translate_all(test_records)",
+    "'section_6b_outputs_reproduce_this_score'",
+    "adapted_outputs = translate_all(test_records)",
+    "changed_by_adaptation = {",
+    "def surface_flags(source, output):",
+    "PROBE_PAIRS = [",
+    "assert not probe_overlap",
+    "probe_settings = {",
+    "conclusion_draft = (",
 )
+# Optional learner inputs that must default to empty so they cannot change the Run all path (RUN3/RUN9).
+EMPTY_DEFAULT_FIELDS = ("BYOD_PATH", "MY_ORIGINAL", "MY_CHANGED")
 # Profile-specific learner-facing statements.
 MARKDOWN_MARKERS = (
     "**Capability:** batched English→Tagalog machine translation (EN→TL only) and bounded supervised fine-tuning",
@@ -94,7 +108,28 @@ MARKDOWN_MARKERS = (
     "Tagalog→English or any other direction, document-level translation",
     "**Environment note:** `sacremoses` is not pinned and not installed",
     "CC BY 2.0 FR",
+    # Guided layer (GDL1–GDL15) and the curriculum unit's interpretation contract
+    "**Driving question:**",
+    "## Start here",
+    "### How to use this notebook",
+    "## The task: Input → Model → Output",
+    "## Roadmap",
+    "**Infrastructure — you may run this without studying it.**",
+    "## 5. Predict",
+    "**reference is one acceptable translation, not the only correct wording.**",
+    "**Neither score is a percentage of sentences translated correctly.**",
+    "**negative results are kept, not hidden**",
+    "**A flag is not an error, and no flag is not correctness.**",
+    "**These are instructional probes**",
+    "**not a robustness benchmark**",
+    "**Matching reloaded outputs verifies artifact fidelity, not translation quality:**",
+    "**Completion records are optional.**",
+    "### Before using these translations in practice",
+    "## Troubleshooting",
+    "## Glossary",
+    "## AI Assistance Disclosure",
 )
+GUIDED_MIN_CHECKPOINTS = 5
 # Direct-library use that must stay inside the carried module cell (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded one.
 FORBIDDEN_OUTSIDE_MODULE = (
@@ -119,10 +154,10 @@ FORBIDDEN_OUTSIDE_MODULE = (
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.0; see docs/release-verification.md for the release gate.
+# Specification 2.2; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.0"
+NOTEBOOK_SPEC = "2.2"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -522,6 +557,31 @@ def _validate_gates(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -
                 )
 
 
+def _validate_empty_defaults(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -> None:
+    """Optional learner inputs are assigned once, to '', on a Colab form line, so Run all ignores them."""
+    for field in EMPTY_DEFAULT_FIELDS:
+        found = []
+        for index, source, tree in code_cells:
+            lines = source.splitlines()
+            for node in ast.walk(tree):
+                if field in _assignment_targets(node):
+                    found.append((index, node, lines[node.lineno - 1] if node.lineno - 1 < len(lines) else ""))
+        _check(len(found) == 1, f"{path.name}: {field} must be assigned exactly once, found {len(found)}")
+        index, node, line = found[0]
+        empty = isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and node.value.value == ""
+        _check(empty, f"{path.name}: {field} must default to '' so the default path ignores it (cell {index})")
+        _check("# @param" in line, f"{path.name}: {field} must be a Colab form parameter (`# @param`)")
+
+
+def _validate_guided_layer(path: Path, markdown: str) -> None:
+    """GDL9: principal checkpoints carry a collapsible sample answer; GDL15: 'workshop' names the event only."""
+    checkpoints = re.findall(r"\*\*Checkpoint \d+ —", markdown)
+    _check(len(checkpoints) >= GUIDED_MIN_CHECKPOINTS, f"{path.name}: expected at least {GUIDED_MIN_CHECKPOINTS} interpretation checkpoints, found {len(checkpoints)}")
+    _check(markdown.count("<details><summary>") >= len(checkpoints), f"{path.name}: every checkpoint needs a collapsible sample answer (GDL9)")
+    _check(markdown.count("<details>") == markdown.count("</details>"), f"{path.name}: unbalanced <details> blocks")
+    _check(not re.search(r"(?i)\bworkshop\b", markdown), f"{path.name}: learner prose must say 'notebook', not 'workshop' (GDL15)")
+
+
 def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
     """PAR1: one tagged cell per carried module, in dependency order, each equal to its module after
     the documented rewrites (generator /2 multi-module carrier; ST2 applied per module)."""
@@ -620,6 +680,8 @@ def _validate_notebook_content(
         f"{path.name}: must load through {MODEL_LOAD_EXPR} (INF1)",
     )
     _validate_gates(path, code_cells)
+    _validate_empty_defaults(path, code_cells)
+    _validate_guided_layer(path, markdown)
     _validate_bootstrap_guard(path, code_cells)
     for filename in EXPECTED_OUTPUTS:
         _check(filename in code, f"{path.name}: must export {filename}")

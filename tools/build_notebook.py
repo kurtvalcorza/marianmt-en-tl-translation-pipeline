@@ -4,6 +4,8 @@
 /2 adds to /1: multi-module packages (one tagged cell per module, topologically ordered, package-relative
 imports removed), template-declared rewrite rules, and extra pinned snapshots (`extra_weights`) for packages
 that stage more than one manifest. Single-module templates render as in /1 except for the generator version.
+Optional guided-layer keys (`notebook_spec`, `lede`, `orientation`, `infrastructure_note`; NOTEBOOK_SPEC 2.2
+§3.5) change the output only for a template that sets them.
 
 Usage (from the repository root, or with --repo):
     python tools/build_notebook.py            # write tutorials/<notebook_name>
@@ -99,6 +101,11 @@ def template_contract() -> dict[str, str]:
         "package_dir": "OPTIONAL repository-relative directory of the package (default 'src/<package>'; e.g. 'mitra_pipeline' for a root-level package)",
         "pins_file": "OPTIONAL repository-relative requirements file that REPLACES pyproject dependencies as the inline PINS: one `name==ver` or `name @ git+url@sha` per line; `--index-url URL`, `--extra-index-url URL`, `--find-links URL` lines are honoured (passed to pip in order); comments/blank lines ignored",
         "model_host": "OPTIONAL {name, reference_url, revision_label} for a non-Hub checkpoint host (default: Hugging Face Hub, https://huggingface.co/<MODEL_ID>, 'revision'); the package's own stage_missing_files downloader must fetch from it",
+        # guided-layer keys (NOTEBOOK_SPEC 2.2 §3.5); a template that sets none of them renders exactly as before
+        "notebook_spec": "OPTIONAL spec version the notebook declares (default NOTEBOOK_SPEC); header text and metadata.dimer.notebook_spec",
+        "lede": "OPTIONAL markdown placed under the H1 badges, before the profile block (e.g. the driving question); not str.format-ed",
+        "orientation": "OPTIONAL list of markdown cells inserted between the header and Prerequisites (GDL1–GDL4); not str.format-ed",
+        "infrastructure_note": "OPTIONAL markdown callout added under the Section 1–3 headings; also collapses their code cells (metadata.jupyter.source_hidden) (GDL11)",
     }
 
 
@@ -402,14 +409,30 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
     ctx = load_context(repo, template, revision)
     mode, run_all, byod = _declarations(template)
     stem = template["stem"]
+    spec = template.get("notebook_spec", NOTEBOOK_SPEC)
     fmt = {"stem": stem, **{k: ctx[k] for k in ("MODEL_ID", "MODEL_REVISION", "MODEL_LICENSE", "MODEL_KEY")}}
     cells: list[dict[str, Any]] = []
+    infra_note = template.get("infrastructure_note")
 
     def add(cell: dict[str, Any]) -> None:
         cell["id"] = f"{stem}-{len(cells):02d}"
         cells.append(cell)
 
+    def infra_md(source: str) -> dict[str, Any]:
+        """A Section 1–3 markdown cell, with the template's Infrastructure callout under its heading."""
+        if not infra_note:
+            return _md(source)
+        heading, sep, rest = source.partition("\n\n")
+        return _md(f"{heading}\n\n> {infra_note.strip()}{sep}{rest}")
+
+    def infra_code(source: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        """A Section 1–3 code cell, collapsed by default when the template labels infrastructure (GDL11)."""
+        if infra_note:
+            metadata = {**(metadata or {}), "jupyter": {"source_hidden": True}}
+        return _code(source, metadata)
+
     badges = " ".join(f"[![{alt}]({img})]({link})" for alt, img, link in template["badges"])
+    lede = f"{template['lede'].strip()}\n\n" if template.get("lede") else ""
     total_mb = (ctx["manifest"]["totalBytes"] + sum(e["manifest"]["totalBytes"] for e in ctx["extra_weights"])) / 1e6
     n_mod = len(ctx["modules"])
     carried = (
@@ -418,10 +441,10 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         else f"the repository's package ({n_mod} modules under `{ctx['pkg_rel']}/`, at revision `{ctx['module_revision'][:12]}`) verbatim in Section 2"
     )
     header = (
-        f"# {template['title']}\n\n{badges}\n\n"
+        f"# {template['title']}\n\n{badges}\n\n{lede}"
         f"**Profile:** `{template['profile']}`  \n"
         f"**Mode:** `{mode}`  \n"
-        f"**Notebook specification:** DIMER Notebook Specification {NOTEBOOK_SPEC} — **standalone** (§4)  \n"
+        f"**Notebook specification:** DIMER Notebook Specification {spec} — **standalone** (§4)  \n"
         f"**Capability:** {template['capability']}\n\n"
         f"**This notebook is standalone.** It carries {carried}, the pinned model identity and the per-file SHA-256 manifest in Section 3, "
         f"and the exact runtime pins in Section 1, so it keeps working after export even if the repository changes or disappears. Its only "
@@ -435,6 +458,8 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         f"**This notebook does not demonstrate:** {template['exclusions'].strip()}"
     )
     add(_md(header))
+    for section in template.get("orientation", []):
+        add(_md(section))
 
     prereq = list(template["prerequisites"]) + [
         f"- **External access:** {ctx['host']['name']} only, to fetch the pinned `{ctx['MODEL_ID']}` snapshot (~{total_mb:.0f} MB in total) "
@@ -446,7 +471,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
     imports = template["runtime_imports"]
     ident_print = ", ".join(f"'{m}': {m}.__version__" for m in imports)
     add(
-        _md(
+        infra_md(
             "## 1. Install the pinned runtime\n\n"
             "The dependency set is pinned exactly (the same pins as the repository's " + (template.get('pins_file') or 'pyproject.toml') + " at the generating revision; any `--index-url`/`--find-links` lines are passed to pip as written) and "
             "installed directly — there is no repository clone and no package install. If a pin replaces a distribution this runtime has already "
@@ -455,7 +480,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         )
     )
     add(
-        _code(
+        infra_code(
             "import importlib\nimport importlib.metadata\nimport os\nimport platform\nimport subprocess\nimport sys\n\n"
             f"{pins_literal}\n"
             "NOTEBOOK_SOURCE = {\n"
@@ -465,7 +490,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             f"    'embedded_modules': {ctx['module_rels']!r},\n"
             f"    'module_sha256': {ctx['module_sha256']!r},\n"
             f"    'generator': {GENERATOR_VERSION!r},\n"
-            f"    'notebook_spec': {NOTEBOOK_SPEC!r},\n"
+            f"    'notebook_spec': {spec!r},\n"
             "}\n"
             "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'\n"
             f"{_INSTALL_GUARD}\n"
@@ -486,10 +511,10 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
                 "names are already defined by the preceding cells). The repository's parity test (`tests/test_notebook_parity.py`) fails whenever "
                 "these cells and the modules diverge, so what you run here is what the repository tests. Nothing in these cells runs a model yet."
             )
-            add(_md(title + intro + f"\n\n**Module {i + 1}/{n_mod}:** `{rel}`"))
+            add(infra_md(title + intro + f"\n\n**Module {i + 1}/{n_mod}:** `{rel}`"))
         else:
             add(_md(f"**Module {i + 1}/{n_mod}:** `{rel}` (carried verbatim; see the note above)"))
-        add(_code(ctx["embedded"][m], {"dimer": {"embedded_module": rel, "module_sha256": ctx["per_module_sha256"][rel]}}))
+        add(infra_code(ctx["embedded"][m], {"dimer": {"embedded_module": rel, "module_sha256": ctx["per_module_sha256"][rel]}}))
 
     manifest_literal = json.dumps(ctx["manifest"], indent=2, ensure_ascii=False)
     n_files = len(ctx["manifest"]["files"])
@@ -500,7 +525,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         ) + ", carried and verified the same way."
     load_expr = template.get("model_load") or f"{template['pipeline_class']}.from_pretrained(weights_dir=WEIGHTS_DIR)"
     add(
-        _md(
+        infra_md(
             "## 3. Pin, stage and verify the model\n\n"
             f"The model identity is carried twice — `MODEL_ID`/`MODEL_REVISION` in the module above and the `{n_files}`-file manifest below (paths, "
             "byte sizes, SHA-256) — and the cell first asserts they agree. It writes the manifest into the working-directory snapshot, then "
@@ -547,7 +572,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         f"pipe = {load_expr}\n"
         "print({'device': getattr(pipe, 'device', None), 'source': getattr(pipe, 'source', 'local-snapshot')})"
     )
-    add(_code(model_code))
+    add(infra_code(model_code))
 
     for stage in template["cells"]:
         add(_md(stage["md"].format(**fmt)))
@@ -561,7 +586,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             "dimer": {
                 "notebook_profile": template["profile"],
                 "notebook_mode": mode,
-                "notebook_spec": NOTEBOOK_SPEC,
+                "notebook_spec": spec,
                 "standalone": True,
                 "generated_from": {
                     "repository": template["repo_name"],
