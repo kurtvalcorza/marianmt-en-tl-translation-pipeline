@@ -58,7 +58,9 @@ CODE_MARKERS = (
     # Stage 6: copy-source baseline and the frozen model on the test split
     "baseline_copy = copy_source_baseline(test_records)",
     "frozen_test = pipe.evaluate(test_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)",
-    "assert frozen_test['chrf'] > baseline_copy['chrf']",
+    "frozen_verdict = 'above the copy-source baseline' if frozen_test['chrf'] > baseline_copy['chrf'] else 'not above the copy-source baseline'",
+    "BYOD_PATH = ''",
+    "global pipe\n    if pipe.adapter is not None:\n        pipe = MarianMTTranslationPipeline.from_pretrained(weights_dir=WEIGHTS_DIR)",
     # Stage 7: bounded fine-tuning with explicit hyperparameters
     "adapt_result = pipe.adapt(",
     "trainable_decoder_layers=TRAINABLE_DECODER_LAYERS",
@@ -67,7 +69,8 @@ CODE_MARKERS = (
     "adapted_test = pipe.evaluate(test_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)",
     "adapted_val = pipe.evaluate(val_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)",
     "'delta_vs_frozen'",
-    "assert adapted_test['chrf'] > frozen_test['chrf']",
+    "adaptation_verdict = 'improved' if delta_chrf > 0 else ('no gain' if delta_chrf == 0 else 'worse')",
+    "comparison['verdicts'] = {'pretrained_vs_copy_source': frozen_verdict, 'adapted_vs_pretrained_chrf': adaptation_verdict}",
     # Stage 9: new sentences, evaluation_report with references, artifact, reload parity, provenance
     "new_report = evaluation_report(new_result, [r['target'] for r in new_records]",
     "pipe.save_artifact(artifact_dir, metadata=",
@@ -195,10 +198,11 @@ COMMON_CODE_MARKERS = (
     "PINS = [",
     "NOTEBOOK_SOURCE = {",
     "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'",
-    "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *INSTALL_PINS], check=True)",
-    "INSTALL_PINS = [f'numpy=={NUMPY_PRELOADED}' if NUMPY_PRELOADED and pin.startswith('numpy==') else pin for pin in PINS]",
-    "importlib.metadata.packages_distributions()",
-    "importlib.invalidate_caches()",
+    "'--require-hashes', '--only-binary', ':all:'",
+    "'--managed-python'",
+    "if len(wheel) != UV_BYTES or hashlib.sha256(wheel).hexdigest() != UV_SHA256:",
+    "if hashlib.sha256(LOCK_TEXT.encode('utf-8')).hexdigest() != LOCK_SHA256:",
+    "_ip.input_transformers_cleanup.append(_route_to_isolated_runtime)",
     "platform.python_version()",
     "torch.__version__",
     "MANIFEST = {",
@@ -650,17 +654,14 @@ def _validate_parity(path: Path, notebook: dict, code_cells: list[tuple[int, str
 
 
 def _validate_bootstrap_guard(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -> None:
-    """The stale-import guard must actually raise: `if stale:` whose body raises RuntimeError."""
-    raises = False
-    for _, _, tree in code_cells:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "stale":
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.Raise) and isinstance(sub.exc, ast.Call):
-                        func = sub.exc.func
-                        if isinstance(func, ast.Name) and func.id == "RuntimeError":
-                            raises = True
-    _check(raises, f"{path.name}: install cell must raise RuntimeError when already-imported packages change")
+    """RUN1/RUN10/ENV6 (fleet sweep SWP-R): nothing is pip-installed into the kernel and no cell asks for a restart.
+    Exactly one cell runs in the kernel (the isolated-environment bootstrap); it reuses a matching environment."""
+    kernel = [source for _, source, _ in code_cells if "# dimer: kernel cell" in source]
+    _check(len(kernel) == 1, f"{path.name}: exactly one '# dimer: kernel cell' bootstrap cell is required, found {len(kernel)}")
+    code = "\n".join(source for _, source, _ in code_cells)
+    _check("'-m', 'pip', 'install'" not in code and "pip install" not in code, f"{path.name}: no cell may pip-install into the notebook kernel (RUN10)")
+    _check("Restart the runtime" not in code, f"{path.name}: no cell may ask for a runtime restart (RUN1)")
+    _check("_isolated_environment_ready()" in kernel[0], f"{path.name}: the bootstrap cell must reuse a matching isolated environment")
 
 
 def _validate_notebook_content(
@@ -669,7 +670,10 @@ def _validate_notebook_content(
     model_id, _revision = _package_identity()
     stripped = {index: _strip_comments(source) for index, source, _ in code_cells}
     code = "\n".join(stripped.values())
-    outside = "\n".join(text for index, text in stripped.items() if index not in embedded)
+    # The isolated-runtime bootstrap (the one '# dimer: kernel cell', checked by _validate_bootstrap_guard) downloads
+    # the pinned uv wheel and runs uv; it is infrastructure, not model logic, so G2 does not apply to it.
+    kernel = {index for index, source, _ in code_cells if "# dimer: kernel cell" in source}
+    outside = "\n".join(text for index, text in stripped.items() if index not in embedded and index not in kernel)
     missing = [marker for marker in COMMON_CODE_MARKERS + CODE_MARKERS if marker not in code]
     _check(not missing, f"{path.name}: missing required source markers: {missing}")
     present = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(code)]

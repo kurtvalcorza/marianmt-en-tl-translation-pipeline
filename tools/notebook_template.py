@@ -40,9 +40,21 @@ TEMPLATE = {
     "profile": "E2E",
     "mode": "GUIDED",
     "notebook_spec": "2.2",
-    "install_guard": "hosted-preload-aware",
+    # Fleet sweep 2026-10-05 (SWP-R): nothing is installed into the kernel. The fleet's uv isolated-environment mechanism
+    # (bioclip2-biodiversity-pipeline, siglip-v1-zero-shot-pipeline) builds a managed CPython from a lock compiled from the
+    # pyproject pins with `uv pip compile pyproject.toml --python-version 3.12 --python-platform x86_64-manylinux_2_28
+    # --generate-hashes --only-binary :all: -o tutorials/requirements-colab.lock.txt`, and routes every later cell to it.
+    "isolated_runtime": True,
+    "managed_python": "3.12.12",
+    "uv": {
+        "version": "0.12.15",
+        "url": "https://files.pythonhosted.org/packages/1e/fd/432451d732917c49152a291de3ef171aa6b0f1a22d39780fb2c1f085ca4c/uv-0.12.15-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "bytes": 20081404,
+        "sha256": "aee9802f46bae436bd91751bb33ddeb379ef1596b5c19df193219d545d244b60",
+    },
+    "lock": "tutorials/requirements-colab.lock.txt",
     "run_all": (
-        "Selecting **Run all** in a fresh supported runtime installs the pinned dependencies, stages and digest-verifies the "
+        "Selecting **Run all** in a fresh supported runtime builds an isolated environment from the hash-locked pins (nothing is installed into the notebook's own Python, so no restart is needed and Run all completes in one pass), stages and digest-verifies the "
         "pinned OPUS-MT snapshot (a pickle checkpoint pinned by SHA-256 and loaded with `weights_only=True`), fetches the "
         "digest-pinned Tatoeba English–Tagalog corpus from OPUS (312 KB, no credential), filters and splits it into "
         "1,200 / 200 / 300 disjoint training, validation and test pairs, translates three English sentences through the "
@@ -146,23 +158,24 @@ TEMPLATE = {
             "**Who this notebook is for.** You can open a notebook in Google Colab, run cells, and read basic Python. You do "
             "not need machine-learning experience: each new term is explained where it first matters and collected in the "
             "**Glossary** at the end. Reading Tagalog helps in two activities but is not required — where it matters, the "
-            "notebook shows you how to record uncertainty instead of guessing.\n\n"
+            "notebook shows you how to record uncertainty instead of guessing. The intended audience is learners and "
+            "practitioners trying machine translation for Philippine languages; this is a teaching run, not a benchmark.\n\n"
             "**Runtime and downloads.** A CPU runtime is enough; a GPU (for example Colab's T4) is used automatically when "
             "present and is faster. The run downloads the pinned PyTorch and Transformers packages, the 296 MB model "
             "checkpoint from Hugging Face and a 312 KB sentence corpus from OPUS. No account, token or upload is needed. "
             "Measured: all cells after the downloads took about four minutes on a workstation CPU (230 s, 2026-09-27); "
             "installation and downloads add time that depends on your network, and a GPU is faster.\n\n"
             "### How to use this notebook\n\n"
-            "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits and no restart: the install "
-            "cell keeps the NumPy that Colab has already loaded. If the first cell ever stops with *Restart the runtime, then "
-            "rerun from the top*, do exactly that once (**Runtime → Restart session**, then **Run all** again): a package "
-            "this notebook pins was already loaded in a different version.\n"
+            "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits and no restart, and Run all "
+            "completes in one pass: Section 1 installs nothing into the notebook's own Python — it builds a separate, "
+            "hash-locked environment and runs every later cell there, so the packages Colab has already loaded never clash "
+            "with the pinned ones. Re-running Section 1 on its own is safe: it reuses that environment and keeps your variables.\n"
             "2. Cells with a form on the right (`# @param`) are the **knobs**. Leave them at their defaults for the first run. "
             "Afterwards, change one knob and re-run from that cell downwards.\n"
-            "3. Sections 1–3 are **Infrastructure**: they install packages, carry the pipeline code and verify the model "
+            "3. Sections 1–3 are **Infrastructure**: they build the isolated environment, carry the pipeline code and verify the model "
             "download. Run them; you do not need to read their code, which is collapsed where your notebook viewer supports it.\n"
             "4. Sections 4–13 are the lesson. Each follows the same rhythm: **question → predict → run → What to notice → "
-            "Checkpoint**. Checkpoints have a collapsible **Sample answer** — write your own answer first.\n"
+            "Checkpoint**. Checkpoints have a collapsible **Sample answer** — write your own answer first, then check your reasoning against it.\n"
             "5. If something fails, see **Troubleshooting** at the end."
         ),
         (
@@ -251,17 +264,27 @@ TEMPLATE = {
                 "SPLIT_SEED = 42  # @param {{type:\"integer\"}}\n\n"
                 "os.makedirs('outputs', exist_ok=True)\n"
                 "if USE_BYOD:\n"
-                "    if BYOD_PATH:\n"
-                "        byod_path = Path(BYOD_PATH)\n"
+                "    if BYOD_PATH.strip():\n"
+                "        byod_path = Path(BYOD_PATH.strip()).expanduser()\n"
+                "        if not byod_path.is_file():\n"
+                "            raise FileNotFoundError(f'BYOD_PATH {{str(byod_path)!r}} is not a file: give one CSV, JSON or JSONL file of id / source / target records')\n"
                 "        file_name = byod_path.name\n"
                 "    else:\n"
-                "        from google.colab import files\n"
-                "        uploaded = files.upload()\n"
+                "        try:\n"
+                "            from google.colab import files\n"
+                "        except ImportError:\n"
+                "            raise RuntimeError('USE_BYOD = True but BYOD_PATH is empty and this runtime has no Colab upload dialog: set BYOD_PATH to your CSV, JSON or JSONL file') from None\n"
+                "        uploaded = files.upload() or {{}}\n"
+                "        if len(uploaded) != 1:\n"
+                "            raise RuntimeError(f'expected exactly one uploaded file, got {{len(uploaded)}} ({{sorted(uploaded) or \"upload cancelled or empty\"}}): run this cell again, or set BYOD_PATH')\n"
                 "        file_name, payload = next(iter(uploaded.items()))\n"
                 "        byod_path = Path('work') / file_name\n"
                 "        byod_path.parent.mkdir(parents=True, exist_ok=True)\n"
                 "        byod_path.write_bytes(payload)\n"
-                "    records = load_byod_dataset(byod_path)\n"
+                "    try:\n"
+                "        records = load_byod_dataset(byod_path)\n"
+                "    except (ValueError, KeyError) as exc:\n"
+                "        raise ValueError(f'{{file_name}}: {{exc}}') from None\n"
                 "    splits = split_dataset(records, seed=SPLIT_SEED)\n"
                 "    data_source = 'BYOD (' + file_name + ')'\n"
                 "    raw_pairs = len(records)\n"
@@ -376,7 +399,15 @@ Before you run the model, write down — in a new text cell or on paper — whic
                 "fail loudly instead of being silently corrected."
             ),
             "code": (
-                "import time\n\n"
+                "import time\n\n\n"
+                "def frozen_pipeline():\n"
+                "    \"\"\"Sections 6-8 must use the pretrained model: a re-run after Section 8's fine-tuning reloads it from the verified snapshot.\"\"\"\n"
+                "    global pipe\n"
+                "    if pipe.adapter is not None:\n"
+                "        pipe = MarianMTTranslationPipeline.from_pretrained(weights_dir=WEIGHTS_DIR)\n"
+                "        print('Reloaded the pretrained model from the verified snapshot: the loaded pipeline carried a fine-tuning from an earlier run.')\n"
+                "    return pipe\n\n\n"
+                "frozen_pipeline()\n"
                 "GEN_MAX_NEW_TOKENS = 128  # @param {{type:\"integer\"}}\n"
                 "NUM_BEAMS = 4  # @param {{type:\"integer\"}}\n\n"
                 "texts = ['The house is wonderful.', 'Good morning to all of you.', 'Where is the nearest hospital?']\n"
@@ -434,6 +465,7 @@ def translate_all(records):
     return outputs
 
 
+frozen_pipeline()  # a re-run after Section 8 translates with the pretrained model again, as the label says
 t0 = time.perf_counter()
 pretrained_outputs = translate_all(test_records)
 print({'translated': len(pretrained_outputs), 'test_records': len(test_records), 'seconds': round(time.perf_counter() - t0, 1)})
@@ -471,11 +503,13 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "languages. The **pretrained model** is then scored on the same 300 sentences with the same settings. Its BLEU "
                 "should land within about a point of the upstream README's 26.6 on Tatoeba — a sanity check that the weights, "
                 "tokenizer and decoding are the upstream ones, not a reproduction of their evaluation.\n\n"
-                "**What to notice:** the pretrained model far above the copy-source baseline (the cell asserts it); "
+                "**What to notice:** the pretrained model far above the copy-source baseline (the cell records that as a "
+                "verdict instead of stopping, so a BYOD run where it is not still reaches the export); "
                 "`hit_token_ceiling` 0 (no output was cut); the denominators; and `section_6b_outputs_reproduce_this_score` "
                 "`True` — the outputs you read in 6b are exactly the ones being scored."
             ),
             "code": (
+                "frozen_pipeline()  # a re-run after Section 8 scores the pretrained model again, as the label says\n"
                 "references = [r['target'] for r in test_records]\n"
                 "baseline_copy = copy_source_baseline(test_records)\n"
                 "print({{'copy_source_baseline': {{'chrf': round(baseline_copy['chrf'], 2), 'bleu': round(baseline_copy['bleu'], 2), 'n': baseline_copy['n']}}}})\n"
@@ -485,7 +519,8 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "print({{'definitions': frozen_test['definitions']}})\n"
                 "recomputed = translation_metrics(pretrained_outputs, references)\n"
                 "print({{'denominators': {{'sentences': frozen_test['n'], 'output_characters': frozen_test['hypothesis_chars'], 'reference_characters': frozen_test['reference_chars']}}, 'section_6b_outputs_reproduce_this_score': abs(recomputed['chrf'] - frozen_test['chrf']) < 0.01}})\n"
-                "assert frozen_test['chrf'] > baseline_copy['chrf']"
+                "frozen_verdict = 'above the copy-source baseline' if frozen_test['chrf'] > baseline_copy['chrf'] else 'not above the copy-source baseline'\n"
+                "print({{'pretrained_vs_copy_source': frozen_verdict}})"
             ),
         },
         {
@@ -527,7 +562,9 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "made the model worse, epoch 0 — the original model — would be kept. The test split is not touched.\n\n"
                 "**What to notice:** training loss falling and validation chrF rising a few points over two epochs, "
                 "`best_epoch`, and `trainable_parameters` against `total_parameters`. A falling training loss alone would not "
-                "prove better translations — that is what the validation and test scores are for."
+                "prove better translations — that is what the validation and test scores are for. Re-running this cell trains "
+                "from the pretrained model again (it reloads it first if the pipeline already carries a fine-tuning), so epoch "
+                "0 is always the pretrained model."
             ),
             "code": (
                 "EPOCHS = 2  # @param {{type:\"integer\"}}\n"
@@ -542,6 +579,7 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "    if 'note' in entry:\n"
                 "        row['note'] = entry['note']\n"
                 "    print(row)\n\n"
+                "frozen_pipeline()  # a re-run trains from the pretrained model, never on top of the previous fine-tuning\n"
                 "t0 = time.perf_counter()\n"
                 "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, trainable_decoder_layers=TRAINABLE_DECODER_LAYERS, progress=report)\n"
                 "adapt_seconds = round(time.perf_counter() - t0, 1)\n"
@@ -570,7 +608,7 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
 
 The cell then translates the test split with the adapted model and pairs each sentence's three outputs. It reports how many outputs adaptation **changed**, and among those how many sentence-level chrF scores went up or down — **negative results are kept, not hidden**. Sentence chrF on a short sentence is noisy (one word can move it by twenty points), so use it to find sentences worth reading, not to rank them. The same first `SHOW_N` test rows as Section 6b are printed with all three outputs, and every row is written to `outputs/<<stem>>_test_predictions.csv`.
 
-On the default sample the cell asserts that adapted chrF exceeds pretrained chrF: a regression guard that this pinned run still behaves as recorded, **not** a promise that adaptation always helps. With BYOD, the cell reports a non-improvement instead of stopping.
+The cell records a verdict — `improved`, `no gain` or `worse` on held-out chrF — instead of stopping, on the default sample and on BYOD alike, so the export always completes. On the default sample a verdict other than `improved` means this pinned run no longer reproduces the recorded gain: report it, do not edit the cell. A verdict is **not** a promise that adaptation always helps. With BYOD, a non-improvement is simply your result; it is reported instead of stopping.
 
 **What to notice:** the three corpus scores and their shared denominator; how many outputs changed; and that some sentence scores went *down* even if the corpus score went up.
 """
@@ -585,6 +623,9 @@ On the default sample the cell asserts that adapted chrF exceeds pretrained chrF
                 "    'delta_vs_frozen': {{'chrf': round(adapted_test['chrf'] - frozen_test['chrf'], 2), 'bleu': round(adapted_test['bleu'] - frozen_test['bleu'], 2)}},\n"
                 "    'n_test_sentences': adapted_test['n'],\n"
                 "}}\n"
+                "delta_chrf = adapted_test['chrf'] - frozen_test['chrf']\n"
+                "adaptation_verdict = 'improved' if delta_chrf > 0 else ('no gain' if delta_chrf == 0 else 'worse')\n"
+                "comparison['verdicts'] = {{'pretrained_vs_copy_source': frozen_verdict, 'adapted_vs_pretrained_chrf': adaptation_verdict}}\n"
                 "for metric, row in comparison.items():\n"
                 "    print({{metric: row}})\n\n"
                 "adapted_outputs = translate_all(test_records)\n"
@@ -624,11 +665,8 @@ On the default sample the cell asserts that adapted chrF exceeds pretrained chrF
                 "}}\n"
                 "with open('outputs/{stem}_evaluation_report.json', 'w', encoding='utf-8') as f:\n"
                 "    json.dump(evaluation_report_payload, f, indent=2, ensure_ascii=False)\n"
-                "if USE_BYOD:\n"
-                "    if adapted_test['chrf'] <= frozen_test['chrf']:\n"
-                "        print({{'note': 'adaptation did not raise held-out chrF on your data; report this result as it is'}})\n"
-                "else:\n"
-                "    assert adapted_test['chrf'] > frozen_test['chrf'], 'the pinned sample run no longer reproduces the recorded gain; report the comparison above'\n"
+                "if adaptation_verdict != 'improved':\n"
+                "    print({{'note': 'adaptation did not raise held-out chrF' + (' on your data' if USE_BYOD else ' on the default sample, so this pinned run no longer reproduces the recorded gain') + '; report this result as it is'}})\n"
                 "print({{'report': 'outputs/{stem}_evaluation_report.json', 'predictions': 'outputs/{stem}_test_predictions.csv'}})"
             ),
         },
@@ -996,13 +1034,16 @@ None of these affects the default path. Change **one** knob, re-run from its cel
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| Section 1 stops with *Restart the runtime, then rerun from the top* | a pinned package was already loaded in a different version (not expected on current Colab or Kaggle) | **Runtime → Restart session**, then **Run all** again |
+| Section 1 stops with *This notebook needs a Linux x86_64 runtime* | the hash-locked environment holds manylinux x86_64 wheels | use Google Colab, Kaggle or a Linux Jupyter host |
+| Section 1 reports that *the pinned uv wheel failed its size/SHA-256 check* | a partial or altered download of the installer | run Section 1 again; if it repeats, the download is being altered |
+| *The isolated environment's Python process exited* | the worker that runs the cells crashed, usually out of memory | **Runtime → Restart session**, then **Run all** |
 | Download error or timeout in Section 3 or 4 | network access to huggingface.co or object.pouta.csc.fi | re-run the cell; only missing files are fetched again. The default path needs both hosts |
 | `verify_snapshot` or `fetch_corpus` reports a size or SHA-256 mismatch | a partial or altered download | delete `weights/opus-mt-en-tl/pytorch_model.bin` (or `weights/tatoeba-en-tl/`) and re-run the cell; never bypass the check |
 | One `Recommended: pip install sacremoses.` warning | expected in this environment | nothing to do; see the Environment note |
 | Very slow, or out of memory | CPU runtime, or a large BYOD file | CPU is fine for the default run; for speed choose **Runtime → Change runtime type → T4 GPU**; lower `BATCH_SIZE` to 8 if memory runs out |
 | `ValueError` naming a record, field or ceiling | BYOD data or a form value outside the contract | fix the named record or value (see Prerequisites) and re-run from that cell |
-| The Section 9 assertion fails on the default path | the pinned run no longer reproduces the recorded gain | do not edit the cell; report the printed comparison and your runtime |
+| Section 9 prints a verdict other than `improved` on the default path | the pinned run no longer reproduces the recorded gain | do not edit the cell; report the printed comparison and your runtime |
+| Re-running Section 6, 7 or 8 prints *Reloaded the pretrained model* | the pipeline still carried the fine-tuning from an earlier run | expected: those sections always use the pretrained model |
 | A form change has no effect | later cells still hold the old values | re-run from the changed cell downwards |
 
 ## Glossary

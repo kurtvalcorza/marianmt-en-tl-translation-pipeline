@@ -62,8 +62,8 @@ the split, the hyperparameters, the baseline, the selection rule, the held-out e
 artifact export and the reload parity check are unchanged. The revision adds the learner layer described above, two
 machine-readable exports (`outputs/marianmt_translation_test_predictions.csv`, `outputs/marianmt_translation_probes.csv`)
 and three blocks in `outputs/marianmt_translation_result.json` (`changed_by_adaptation`, `surface_flags`, `probes`),
-an optional `BYOD_PATH` field so BYOD can be driven without an upload dialog (EXE2), a `hosted-preload-aware` install guard that keeps a NumPy 2.x the host kernel already imported and ignores private `.pth` start-up hooks and bare namespace proxies, so Colab and Kaggle `Run all` needs no restart (RUN10), and — on the BYOD branch only —
-reports a held-out non-improvement instead of stopping. Earlier, the inference-only notebook (`TASK-INFERENCE`)
+an optional `BYOD_PATH` field so BYOD can be driven without an upload dialog (EXE2), a `hosted-preload-aware` install guard (since replaced, 2026-10-05 fleet sweep, by an isolated hash-locked uv environment: nothing is installed into the kernel, so Colab and Kaggle `Run all` needs no restart (RUN10)), and — on the BYOD branch only —
+reports a held-out non-improvement instead of stopping (now on both branches: quality outcomes are recorded verdicts). Earlier, the inference-only notebook (`TASK-INFERENCE`)
 translated three synthetic sentences with a `not-measurable` verdict; that contract survives as Section 6a.
 
 ## Conformance notes
