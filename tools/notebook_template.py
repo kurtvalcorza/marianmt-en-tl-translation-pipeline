@@ -39,10 +39,30 @@ TEMPLATE = {
     "notebook_name": "marianmt_translation_colab.ipynb",
     "profile": "E2E",
     "mode": "GUIDED",
-    "notebook_spec": "2.2",
-    "install_guard": "hosted-preload-aware",
+    # MMT-m3 (review 2026-10-03): nothing is installed into the kernel. The fleet /2.1 isolated runtime builds a managed
+    # CPython 3.12.12 environment from tutorials/requirements-colab.lock.txt (compiled from the pyproject pins with
+    # `uv pip compile ... --generate-hashes --only-binary :all:`, versions constrained to the T4-passed gliner-ner-pipeline
+    # lock at fe3d5ba) and routes every later cell to a worker there, so no restart is ever needed. Linux x86_64 only.
+    "isolated_runtime": True,
+    "managed_python": "3.12.12",
+    "uv": {
+        "version": "0.12.15",
+        "url": "https://files.pythonhosted.org/packages/1e/fd/432451d732917c49152a291de3ef171aa6b0f1a22d39780fb2c1f085ca4c/uv-0.12.15-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "bytes": 20081404,
+        "sha256": "aee9802f46bae436bd91751bb33ddeb379ef1596b5c19df193219d545d244b60",
+    },
+    "lock": "tutorials/requirements-colab.lock.txt",
+    # MMT-m4: Sections 1-3 titled `# @title Infrastructure: ...` and collapsed with Colab's `cellView: form`.
+    "infrastructure_labels": True,
+    "collapse_model_cell": True,
+    # MMT-m5: the default path also fetches the corpus from OPUS; the generator names both hosts.
+    "data_host": {
+        "name": "OPUS",
+        "host": "object.pouta.csc.fi",
+        "purpose": "the digest-pinned Tatoeba English–Tagalog corpus zip (312 KB)",
+    },
     "run_all": (
-        "Selecting **Run all** in a fresh supported runtime installs the pinned dependencies, stages and digest-verifies the "
+        "Selecting **Run all** in a fresh supported runtime builds a separate environment from the hash-locked pins (nothing is installed into the notebook's own Python, so no restart is needed), stages and digest-verifies the "
         "pinned OPUS-MT snapshot (a pickle checkpoint pinned by SHA-256 and loaded with `weights_only=True`), fetches the "
         "digest-pinned Tatoeba English–Tagalog corpus from OPUS (312 KB, no credential), filters and splits it into "
         "1,200 / 200 / 300 disjoint training, validation and test pairs, translates three English sentences through the "
@@ -147,20 +167,24 @@ TEMPLATE = {
             "not need machine-learning experience: each new term is explained where it first matters and collected in the "
             "**Glossary** at the end. Reading Tagalog helps in two activities but is not required — where it matters, the "
             "notebook shows you how to record uncertainty instead of guessing.\n\n"
-            "**Runtime and downloads.** A CPU runtime is enough; a GPU (for example Colab's T4) is used automatically when "
-            "present and is faster. The run downloads the pinned PyTorch and Transformers packages, the 296 MB model "
+            "**Runtime and downloads.** A Linux x86_64 runtime (Google Colab, Kaggle or Linux Jupyter); a CPU runtime is "
+            "enough, and a GPU (for example Colab's T4) is used automatically when present and is faster. The run downloads "
+            "the pinned packages (PyTorch with its CUDA libraries, Transformers) into a separate environment, the 296 MB model "
             "checkpoint from Hugging Face and a 312 KB sentence corpus from OPUS. No account, token or upload is needed. "
-            "Measured: all cells after the downloads took about four minutes on a workstation CPU (230 s, 2026-09-27); "
-            "installation and downloads add time that depends on your network, and a GPU is faster.\n\n"
+            "Measured: all cells after the downloads took 263 s on a workstation CPU in the recorded pre-flight (2026-09-27); "
+            "the whole run, downloads included, took 267.5 s on a Kaggle T4 GPU the same day. Both records predate the "
+            "isolated environment of Section 1, whose one-time setup adds time that depends on your network.\n\n"
             "### How to use this notebook\n\n"
-            "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits and no restart: the install "
-            "cell keeps the NumPy that Colab has already loaded. If the first cell ever stops with *Restart the runtime, then "
-            "rerun from the top*, do exactly that once (**Runtime → Restart session**, then **Run all** again): a package "
-            "this notebook pins was already loaded in a different version.\n"
+            "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits and no restart: Section 1 "
+            "installs nothing into the notebook's own Python — it builds a separate, hash-locked environment and runs every "
+            "later cell there, so the packages Colab has already loaded never clash with the pinned ones.\n"
             "2. Cells with a form on the right (`# @param`) are the **knobs**. Leave them at their defaults for the first run. "
-            "Afterwards, change one knob and re-run from that cell downwards.\n"
-            "3. Sections 1–3 are **Infrastructure**: they install packages, carry the pipeline code and verify the model "
-            "download. Run them; you do not need to read their code, which is collapsed where your notebook viewer supports it.\n"
+            "Afterwards, change one knob and re-run from that cell downwards. Sections 4, 6a, 6b, 7 and 8 begin with "
+            "`reset_to_pretrained()`: if the model in memory was already fine-tuned by an earlier pass, it is reloaded from the "
+            "verified snapshot first, so a re-run always measures, compares against and trains from the published model.\n"
+            "3. Sections 1–3 are **Infrastructure**: they build the environment, carry the pipeline code and verify the model "
+            "download. Run them; you do not need to read their code. In Colab each of their code cells shows only its "
+            "`Infrastructure: …` title; click the title to expand the code.\n"
             "4. Sections 4–13 are the lesson. Each follows the same rhythm: **question → predict → run → What to notice → "
             "Checkpoint**. Checkpoints have a collapsible **Sample answer** — write your own answer first.\n"
             "5. If something fails, see **Troubleshooting** at the end."
@@ -204,17 +228,13 @@ TEMPLATE = {
             "**Fast path:** if you are short on time, choose **Run all**, then read Sections 4, 6, 9, 10, 11 and 13."
         ),
     ],
-    "infrastructure_note": (
-        "**Infrastructure — you may run this without studying it.** This section keeps the run reproducible and safe; "
-        "it is not part of the lesson. Its code cell is collapsed where your notebook viewer supports it."
-    ),
     "prerequisites": [
-        "- **Runtime:** a fresh supported runtime (Google Colab or Jupyter, Python 3.12). The default path runs on CPU (float32) and uses CUDA automatically when available. CPU is adequate: a local pre-flight of this notebook on a workstation CPU (2026-09-27, downloads pre-staged) measured 2.6 s to digest-verify and load the 299 MB snapshot, 27–41 s per pass over the 300-sentence test split with 4 beams, 92 s for the default two-epoch fine-tuning of the last two decoder blocks on 1,200 pairs, and 230 s for all cells. The pinned `torch==2.14.0` install and the 296 MB checkpoint are the large downloads of the run.",
+        "- **Runtime:** a fresh **Linux x86_64** runtime (Google Colab, Kaggle or Linux Jupyter). The kernel's own Python version does not matter: Section 1 runs the lesson in a managed CPython 3.12.12 environment built from hash-locked manylinux wheels, and stops with a message on any other platform. The default path runs on CPU (float32) and uses CUDA automatically when available. CPU is adequate: a local pre-flight of this notebook on a workstation CPU (2026-09-27, downloads pre-staged) measured 2.6 s to digest-verify and load the 299 MB snapshot, 27–41 s per pass over the 300-sentence test split with 4 beams, 92 s for the default two-epoch fine-tuning of the last two decoder blocks on 1,200 pairs, and 263 s for all cells. The pinned `torch==2.14.0` packages and the 296 MB checkpoint are the large downloads of the run.",
         "- **Knowledge:** basic Python (variables, lists, dictionaries, running a cell) and basic Colab use. No machine-learning background is assumed; the notebook explains translation models, beam search, fine-tuning, chrF and BLEU where they are used.",
-        "- **Data contract:** records are `{id, source, target}` — an English sentence and its Tagalog reference, each 1..4,000 characters, ids matching `[A-Za-z0-9_.:-]{1,64}` and unique; a dataset needs 8..20,000 records; sources are de-duplicated case-insensitively before splitting so the same English sentence never sits in two splits; during training only, sources and targets are truncated to 128 SentencePiece pieces (inference never truncates — it rejects). BYOD accepts CSV, JSON or JSONL in that shape.",
+        "- **Data contract:** records are `{id, source, target}` — an English sentence and its Tagalog reference, each 1..4,000 characters, ids matching `[A-Za-z0-9_.:-]{1,64}` and unique. A BYOD file needs **at least 50 and at most 10,002 records with distinct English sources**: at the default 20 % test / 15 % validation split, 50 is the fewest that gives the training, validation and test splits the 8 records each that `validate_dataset` requires, and above 10,002 the test split would exceed `MAX_EVAL_RECORDS` = 2,000, the most `evaluate` scores in one call; Section 4 refuses a file outside these bounds, naming the bound, before any model work (`validate_dataset` on its own accepts 8..20,000 records). Sources are de-duplicated case-insensitively before splitting so the same English sentence never sits in two splits; during training only, sources and targets are truncated to 128 SentencePiece pieces (inference never truncates — it rejects). BYOD accepts CSV, JSON or JSONL in that shape.",
         "- **Validation is structural, not linguistic:** nothing checks that a source is English, that a target is Tagalog, or that a pair is a faithful translation — a misaligned corpus is fine-tuned on without complaint.",
         "- **Privacy:** Do not upload confidential or restricted data to a hosted runtime unless you are authorized to process it there — a proprietary translation memory is exactly that. The default path uploads nothing.",
-        "- **External access (data):** besides the Hub, the default path fetches one pinned object (`en-tl.txt.zip`, 312,459 bytes, SHA-256 `9abddc7d…`) from OPUS at `object.pouta.csc.fi` over HTTPS, refused on any mismatch before it is read; Tatoeba sentences are CC BY 2.0 FR (attribution: the Tatoeba contributors; redistribution: OPUS).",
+        "- **Corpus download:** the default path fetches one pinned object (`en-tl.txt.zip`, 312,459 bytes, SHA-256 `9abddc7d…`) from OPUS at `object.pouta.csc.fi` over HTTPS, refused on any mismatch before it is read; Tatoeba sentences are CC BY 2.0 FR (attribution: the Tatoeba contributors; redistribution: OPUS).",
     ],
     "cells": [
         {
@@ -239,30 +259,59 @@ TEMPLATE = {
                 "`outputs/{stem}_train.csv` in the shape BYOD expects. Four refusal probes then feed deliberately broken data — "
                 "a duplicate id, an empty target, a missing field and a dataset too small to split — to show that bad input is "
                 "rejected with a message instead of being trained on.\n\n"
+                "**Engineering — a clean starting model.** The cell also defines `reset_to_pretrained()` and calls it first. On "
+                "the first run it does nothing; when you re-run Section 4 for BYOD after the default run, the model in memory "
+                "has been fine-tuned on Tatoeba, so it reloads the published model from the verified snapshot. Your baselines, "
+                "your fine-tuning and your exported adapter then start from the pretrained model, not from the default run's "
+                "adaptation. With BYOD the cell also prints the size bounds it enforces (at least 50 and at most 10,002 records "
+                "with distinct English sources at the default split).\n\n"
                 "**What to notice:** 8,785 raw pairs; splits 1,200 / 200 / 300; `identical_pairs` 0; three dataset digests "
                 "(fingerprints that identify exactly which data you used); and all four probes `rejected`."
             ),
             "code": (
+                "import gc\n"
                 "import hashlib\n"
                 "import io\n"
-                "import json\n\n"
+                "import json\n\n\n"
+                "def reset_to_pretrained():\n"
+                "    \"\"\"Start from the published model: if `pipe` carries a fine-tuning from an earlier pass, reload it from the verified snapshot.\"\"\"\n"
+                "    global pipe\n"
+                "    if pipe.adapter is None:\n"
+                "        return pipe\n"
+                "    pipe = None\n"
+                "    gc.collect()\n"
+                "    if torch.cuda.is_available():\n"
+                "        torch.cuda.empty_cache()\n"
+                "    pipe = MarianMTTranslationPipeline.from_pretrained(weights_dir=WEIGHTS_DIR)\n"
+                "    print({{'reloaded': 'the pretrained model, from the verified snapshot', 'reason': 'an earlier pass had fine-tuned the model in memory', 'adapted': pipe.adapter is not None}})\n"
+                "    return pipe\n\n\n"
+                "reset_to_pretrained()\n"
                 "USE_BYOD = False  # @param {{type:\"boolean\"}}\n"
                 "BYOD_PATH = ''  # @param {{type:\"string\"}}\n"
                 "SPLIT_SEED = 42  # @param {{type:\"integer\"}}\n\n"
                 "os.makedirs('outputs', exist_ok=True)\n"
                 "if USE_BYOD:\n"
-                "    if BYOD_PATH:\n"
-                "        byod_path = Path(BYOD_PATH)\n"
+                "    byod_min, byod_max = byod_size_bounds(min_eval_records=MIN_RECORDS)\n"
+                "    print({{'byod_contract': 'CSV (id, source, target), JSON array or JSONL of {{id, source, target}} records', 'records_with_distinct_sources': [byod_min, byod_max], 'MAX_EVAL_RECORDS': MAX_EVAL_RECORDS}})\n"
+                "    if BYOD_PATH.strip():\n"
+                "        byod_path = Path(BYOD_PATH.strip()).expanduser()\n"
+                "        if not byod_path.is_file():\n"
+                "            raise FileNotFoundError(f'BYOD_PATH {{str(byod_path)!r}} is not a file: give one CSV, JSON or JSONL file of id / source / target records')\n"
                 "        file_name = byod_path.name\n"
                 "    else:\n"
-                "        from google.colab import files\n"
-                "        uploaded = files.upload()\n"
+                "        try:\n"
+                "            from google.colab import files\n"
+                "        except ImportError:\n"
+                "            raise RuntimeError('USE_BYOD = True but BYOD_PATH is empty and this runtime has no Colab upload dialog: set BYOD_PATH to your CSV, JSON or JSONL file') from None\n"
+                "        uploaded = files.upload() or {{}}\n"
+                "        if len(uploaded) != 1:\n"
+                "            raise ValueError(f'expected exactly one uploaded file, got {{len(uploaded)}} ({{sorted(uploaded) or \"upload cancelled or empty\"}}): run this cell again, or set BYOD_PATH')\n"
                 "        file_name, payload = next(iter(uploaded.items()))\n"
                 "        byod_path = Path('work') / file_name\n"
                 "        byod_path.parent.mkdir(parents=True, exist_ok=True)\n"
                 "        byod_path.write_bytes(payload)\n"
                 "    records = load_byod_dataset(byod_path)\n"
-                "    splits = split_dataset(records, seed=SPLIT_SEED)\n"
+                "    splits = split_dataset(records, seed=SPLIT_SEED, min_eval_records=MIN_RECORDS)\n"
                 "    data_source = 'BYOD (' + file_name + ')'\n"
                 "    raw_pairs = len(records)\n"
                 "else:\n"
@@ -377,6 +426,7 @@ Before you run the model, write down — in a new text cell or on paper — whic
             ),
             "code": (
                 "import time\n\n"
+                "reset_to_pretrained()  # a re-run after Section 8 uses the published model again, as the section says\n"
                 "GEN_MAX_NEW_TOKENS = 128  # @param {{type:\"integer\"}}\n"
                 "NUM_BEAMS = 4  # @param {{type:\"integer\"}}\n\n"
                 "texts = ['The house is wonderful.', 'Good morning to all of you.', 'Where is the nearest hospital?']\n"
@@ -434,6 +484,7 @@ def translate_all(records):
     return outputs
 
 
+reset_to_pretrained()  # these outputs are labelled pretrained, so they must come from the published model
 t0 = time.perf_counter()
 pretrained_outputs = translate_all(test_records)
 print({'translated': len(pretrained_outputs), 'test_records': len(test_records), 'seconds': round(time.perf_counter() - t0, 1)})
@@ -471,21 +522,25 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "languages. The **pretrained model** is then scored on the same 300 sentences with the same settings. Its BLEU "
                 "should land within about a point of the upstream README's 26.6 on Tatoeba — a sanity check that the weights, "
                 "tokenizer and decoding are the upstream ones, not a reproduction of their evaluation.\n\n"
-                "**What to notice:** the pretrained model far above the copy-source baseline (the cell asserts it); "
+                "**What to notice:** the pretrained model far above the copy-source baseline (the cell records that as a "
+                "verdict instead of stopping, so a run where it is not still reaches the export); `adapted` `False` in the "
+                "printed record — the score is the published model's; "
                 "`hit_token_ceiling` 0 (no output was cut); the denominators; and `section_6b_outputs_reproduce_this_score` "
                 "`True` — the outputs you read in 6b are exactly the ones being scored."
             ),
             "code": (
+                "reset_to_pretrained()  # this score is the pretrained model's, whatever ran before\n"
                 "references = [r['target'] for r in test_records]\n"
                 "baseline_copy = copy_source_baseline(test_records)\n"
                 "print({{'copy_source_baseline': {{'chrf': round(baseline_copy['chrf'], 2), 'bleu': round(baseline_copy['bleu'], 2), 'n': baseline_copy['n']}}}})\n"
                 "t0 = time.perf_counter()\n"
                 "frozen_test = pipe.evaluate(test_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)\n"
-                "print({{'frozen_model_test': {{'chrf': round(frozen_test['chrf'], 2), 'bleu': round(frozen_test['bleu'], 2), 'n': frozen_test['n'], 'hit_token_ceiling': frozen_test['hit_token_ceiling']}}, 'seconds': round(time.perf_counter() - t0, 1)}})\n"
+                "print({{'frozen_model_test': {{'chrf': round(frozen_test['chrf'], 2), 'bleu': round(frozen_test['bleu'], 2), 'n': frozen_test['n'], 'hit_token_ceiling': frozen_test['hit_token_ceiling'], 'adapted': frozen_test['adapted']}}, 'seconds': round(time.perf_counter() - t0, 1)}})\n"
                 "print({{'definitions': frozen_test['definitions']}})\n"
                 "recomputed = translation_metrics(pretrained_outputs, references)\n"
                 "print({{'denominators': {{'sentences': frozen_test['n'], 'output_characters': frozen_test['hypothesis_chars'], 'reference_characters': frozen_test['reference_chars']}}, 'section_6b_outputs_reproduce_this_score': abs(recomputed['chrf'] - frozen_test['chrf']) < 0.01}})\n"
-                "assert frozen_test['chrf'] > baseline_copy['chrf']"
+                "frozen_verdict = 'above the copy-source baseline' if frozen_test['chrf'] > baseline_copy['chrf'] else 'not above the copy-source baseline'\n"
+                "print({{'pretrained_vs_copy_source': frozen_verdict}})"
             ),
         },
         {
@@ -527,7 +582,10 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "made the model worse, epoch 0 — the original model — would be kept. The test split is not touched.\n\n"
                 "**What to notice:** training loss falling and validation chrF rising a few points over two epochs, "
                 "`best_epoch`, and `trainable_parameters` against `total_parameters`. A falling training loss alone would not "
-                "prove better translations — that is what the validation and test scores are for."
+                "prove better translations — that is what the validation and test scores are for. The cell first calls "
+                "`reset_to_pretrained()`, so a re-run (for example with a different `EPOCHS`) trains from the published model "
+                "again and its epoch 0 is the pretrained model, never the previous fine-tuning; `adapt` itself refuses a model "
+                "that is already adapted."
             ),
             "code": (
                 "EPOCHS = 2  # @param {{type:\"integer\"}}\n"
@@ -542,6 +600,7 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
                 "    if 'note' in entry:\n"
                 "        row['note'] = entry['note']\n"
                 "    print(row)\n\n"
+                "reset_to_pretrained()  # train from the published model, never on top of an earlier fine-tuning\n"
                 "t0 = time.perf_counter()\n"
                 "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, trainable_decoder_layers=TRAINABLE_DECODER_LAYERS, progress=report)\n"
                 "adapt_seconds = round(time.perf_counter() - t0, 1)\n"
@@ -570,7 +629,9 @@ show_rows(paired[:show_n], [('id', 'id'), ('English', 'source'), ('reference', '
 
 The cell then translates the test split with the adapted model and pairs each sentence's three outputs. It reports how many outputs adaptation **changed**, and among those how many sentence-level chrF scores went up or down — **negative results are kept, not hidden**. Sentence chrF on a short sentence is noisy (one word can move it by twenty points), so use it to find sentences worth reading, not to rank them. The same first `SHOW_N` test rows as Section 6b are printed with all three outputs, and every row is written to `outputs/<<stem>>_test_predictions.csv`.
 
-On the default sample the cell asserts that adapted chrF exceeds pretrained chrF: a regression guard that this pinned run still behaves as recorded, **not** a promise that adaptation always helps. With BYOD, the cell reports a non-improvement instead of stopping.
+The cell records a verdict — `improved`, `no gain` or `worse` on held-out chrF — instead of stopping, so a legitimate negative result (an experiment that keeps epoch 0, or your own data) still reaches Sections 10–13. On the default sample with every form value at its default, a verdict other than `improved` means this pinned run no longer reproduces the recorded gain; after you change a knob it is simply your result. A verdict is **not** a promise that adaptation always helps.
+
+**CPU and GPU give slightly different adapted numbers.** Training does the same arithmetic in a different floating-point order on a GPU, so the adapted model, and everything computed from it, differs a little by device. The recorded default runs give adapted chrF 59.36 / BLEU 33.75 with 189 of 300 outputs changed on a workstation CPU, and 59.56 / 33.65 with 196 changed on a Kaggle T4 GPU (both 2026-09-27, `torch 2.14.0`); the copy-source and pretrained scores were identical on both. Compare your numbers with the record for your device.
 
 **What to notice:** the three corpus scores and their shared denominator; how many outputs changed; and that some sentence scores went *down* even if the corpus score went up.
 """
@@ -585,6 +646,9 @@ On the default sample the cell asserts that adapted chrF exceeds pretrained chrF
                 "    'delta_vs_frozen': {{'chrf': round(adapted_test['chrf'] - frozen_test['chrf'], 2), 'bleu': round(adapted_test['bleu'] - frozen_test['bleu'], 2)}},\n"
                 "    'n_test_sentences': adapted_test['n'],\n"
                 "}}\n"
+                "delta_chrf = adapted_test['chrf'] - frozen_test['chrf']\n"
+                "adaptation_verdict = 'improved' if delta_chrf > 0 else ('no gain' if delta_chrf == 0 else 'worse')\n"
+                "comparison['verdicts'] = {{'pretrained_vs_copy_source': frozen_verdict, 'adapted_vs_pretrained_chrf': adaptation_verdict}}\n"
                 "for metric, row in comparison.items():\n"
                 "    print({{metric: row}})\n\n"
                 "adapted_outputs = translate_all(test_records)\n"
@@ -624,11 +688,8 @@ On the default sample the cell asserts that adapted chrF exceeds pretrained chrF
                 "}}\n"
                 "with open('outputs/{stem}_evaluation_report.json', 'w', encoding='utf-8') as f:\n"
                 "    json.dump(evaluation_report_payload, f, indent=2, ensure_ascii=False)\n"
-                "if USE_BYOD:\n"
-                "    if adapted_test['chrf'] <= frozen_test['chrf']:\n"
-                "        print({{'note': 'adaptation did not raise held-out chrF on your data; report this result as it is'}})\n"
-                "else:\n"
-                "    assert adapted_test['chrf'] > frozen_test['chrf'], 'the pinned sample run no longer reproduces the recorded gain; report the comparison above'\n"
+                "if adaptation_verdict != 'improved':\n"
+                "    print({{'note': 'adaptation did not raise held-out chrF in this run (best_epoch ' + str(adapt_result['best_epoch']) + '); negative results are kept: report it as it is'}})\n"
                 "print({{'report': 'outputs/{stem}_evaluation_report.json', 'predictions': 'outputs/{stem}_test_predictions.csv'}})"
             ),
         },
@@ -863,7 +924,7 @@ else:
                 """
 ## 12. New sentences, export and reload
 
-**Engineering — the artifact.** Six Tatoeba sentences that were in none of the splits are translated by the adapted model through the same `translate` contract as Section 6, and scored with `evaluation_report` — which returns a `measured-small-sample` verdict when references are supplied, because six sentences carry no dispersion estimate.
+**Engineering — the artifact.** On the default path, six Tatoeba sentences that were in none of the splits are translated by the adapted model through the same `translate` contract as Section 6, and scored with `evaluation_report` — which returns a `measured-small-sample` verdict when references are supplied, because six sentences carry no dispersion estimate. **With BYOD there are no unused pairs**, so the cell re-uses the first six of *your test* pairs instead: they were already scored in Section 9, so they are not new data, and `sample_kind` says so.
 
 `pipe.save_artifact` writes the trained tensors — the last two decoder blocks, about 34 MB — as `adapter.safetensors`, with a `manifest.json` recording the artifact format, the base model id and revision, the digest of the base pickle checkpoint, the tensor names, the file size and SHA-256, the training configuration and the epoch history. `MarianMTTranslationPipeline.from_artifact` re-verifies the base snapshot, checks the artifact manifest and digest **before** deserialising, refuses any tensor that is not an adaptable decoder tensor, and overlays the tensors onto a freshly loaded base — a new object built from files, not the model in memory. The cell asserts identical translations before and after.
 
@@ -877,7 +938,7 @@ else:
                 "held_out = [r for r in read_corpus_pairs(corpus_bytes) if r[0].lower() not in {{x['source'].lower() for part in splits.values() for x in part}}][:6] if not USE_BYOD else [(r['source'], r['target']) for r in test_records[:6]]\n"
                 "new_records = [{{'id': f'new-{{i:02d}}', 'source': s, 'target': t}} for i, (s, t) in enumerate(held_out)]\n"
                 "new_result = pipe.translate([r['source'] for r in new_records], max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)\n"
-                "new_report = evaluation_report(new_result, [r['target'] for r in new_records], sample_kind='six unseen Tatoeba pairs' if not USE_BYOD else 'BYOD test records')\n"
+                "new_report = evaluation_report(new_result, [r['target'] for r in new_records], sample_kind='six unseen Tatoeba pairs' if not USE_BYOD else 'first six BYOD test records (already scored in Section 9; not new data)')\n"
                 "for record, item in zip(new_records, new_result['translations'], strict=True):\n"
                 "    print({{'id': record['id'], 'source': record['source'], 'adapted': item['text'], 'reference': record['target'], 'stopped_by': item['stopped_by']}})\n"
                 "print({{'new_sentences': {{'verdict': new_report['verdict'], 'metrics': new_report['metrics'], 'reason': new_report['reason']}}}})\n"
@@ -978,7 +1039,7 @@ Three habits to carry to real data. **References first:** read the copy-source b
 
 ## Optional experiments
 
-None of these affects the default path. Change **one** knob, re-run from its cell, and compare with the recorded run:
+None of these affects the default path. Change **one** knob, re-run from its cell, and compare with the recorded run for your device (Section 9). Each re-run starts from the published model: Sections 4, 6a, 6b, 7 and 8 call `reset_to_pretrained()` first, so the pretrained and epoch-0 numbers are the pretrained model's, never a previous fine-tuning's:
 
 - set `TRAINABLE_DECODER_LAYERS = 6` to train the whole decoder, and compare the adapter size and the test scores;
 - raise `EPOCHS` and watch whether validation chrF keeps rising or turns down — and which epoch is kept;
@@ -987,22 +1048,27 @@ None of these affects the default path. Change **one** knob, re-run from its cel
 
 ## Bring your own data (optional)
 
-1. Prepare a CSV with columns `id`, `source` (English) and `target` (Tagalog reference), or a JSON / JSONL list of such records: unique ids, 8..20,000 records, each text 1..4,000 characters.
+1. Prepare a CSV with columns `id`, `source` (English) and `target` (Tagalog reference), or a JSON / JSONL list of such records: unique ids, at least 50 and at most 10,002 records with distinct English sources (Section 4 refuses other sizes and names the bound), each text 1..4,000 characters.
 2. In Section 4 set `USE_BYOD = True`, and either leave `BYOD_PATH` empty to get an upload dialog or set it to the file's path in the runtime.
-3. Run from Section 4 downwards. Your pairs pass through the same validation, split, baselines, adaptation, evaluation, meaning checks, probes, export and reload.
+3. Run from Section 4 downwards. Section 4 first reloads the published model if the default run fine-tuned it, so your baselines, your fine-tuning and your exported adapter start from the pretrained model. Your pairs pass through the same validation, split, baselines, adaptation, evaluation, meaning checks, probes, export and reload; Section 12 re-uses six of your test pairs (not new data).
 4. Do not upload confidential or restricted text to a hosted runtime unless you are authorised to process it there. Read the copy-source baseline and the pretrained score on your data before the adapted one.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| Section 1 stops with *Restart the runtime, then rerun from the top* | a pinned package was already loaded in a different version (not expected on current Colab or Kaggle) | **Runtime → Restart session**, then **Run all** again |
+| Section 1 stops with *This notebook needs a Linux x86_64 runtime* | the locked environment holds manylinux x86_64 wheels | use Google Colab, Kaggle or a Linux Jupyter host |
+| Section 1 reports that *the pinned uv wheel failed its size/SHA-256 check* | a partial or altered download of the installer | run the cell again; if it repeats, the download is being altered |
+| *The isolated environment's Python process exited* | the worker that runs the lesson cells crashed, usually out of memory | **Runtime → Restart session**, then **Run all** |
 | Download error or timeout in Section 3 or 4 | network access to huggingface.co or object.pouta.csc.fi | re-run the cell; only missing files are fetched again. The default path needs both hosts |
 | `verify_snapshot` or `fetch_corpus` reports a size or SHA-256 mismatch | a partial or altered download | delete `weights/opus-mt-en-tl/pytorch_model.bin` (or `weights/tatoeba-en-tl/`) and re-run the cell; never bypass the check |
 | One `Recommended: pip install sacremoses.` warning | expected in this environment | nothing to do; see the Environment note |
 | Very slow, or out of memory | CPU runtime, or a large BYOD file | CPU is fine for the default run; for speed choose **Runtime → Change runtime type → T4 GPU**; lower `BATCH_SIZE` to 8 if memory runs out |
 | `ValueError` naming a record, field or ceiling | BYOD data or a form value outside the contract | fix the named record or value (see Prerequisites) and re-run from that cell |
-| The Section 9 assertion fails on the default path | the pinned run no longer reproduces the recorded gain | do not edit the cell; report the printed comparison and your runtime |
+| Section 4 refuses BYOD naming `MAX_EVAL_RECORDS` or *at least 8 are required* | the file is outside the 50..10,002 distinct-source bounds | split a large file into smaller ones, or add pairs to a small one |
+| Section 9 prints a verdict other than `improved` with every form value at its default | the pinned run no longer reproduces the recorded gain | do not edit the cell; report the printed comparison and your runtime |
+| A cell prints *reloaded the pretrained model* | the model in memory carried a fine-tuning from an earlier pass | expected: Sections 4, 6a, 6b, 7 and 8 always start from the published model |
+| `RuntimeError: this pipeline is already adapted` | `pipe.adapt` was called on a fine-tuned model outside Section 8 | run `reset_to_pretrained()` first, or re-run from Section 8 |
 | A form change has no effect | later cells still hold the old values | re-run from the changed cell downwards |
 
 ## Glossary

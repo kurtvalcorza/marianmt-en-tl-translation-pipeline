@@ -1,0 +1,301 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/marianmt-en-tl-translation-pipeline-ade8b40-f2cbab/marianmt_translation_colab_ade8b40_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/19 - Infrastructure: install the locked runtime into an isolated environment...
+{'isolated_environment': '/content/dimer_isolated_env', 'isolated_python': '3.12.12', 'kernel_python': '3.13.15', 'locked_packages': 48, 'setup_seconds': 57}
+[colab] Executing cell 2/19 - Infrastructure: route the remaining cells to the isolated environment...
+Every later code cell now runs in /content/dimer_isolated_env/bin/python (pid 995).
+[colab] Executing cell 3/19 - Infrastructure: record the runtime...
+{'notebook_source': {'repository': 'marianmt-en-tl-translation-pipeline', 'repository_revision': '52787661b2e14cea8d475626ff09739ddd4974b0', 'embedded_module': 'src/marianmt_translation_pipeline/pipeline.py', 'embedded_modules': ['src/marianmt_translation_pipeline/metrics.py', 'src/marianmt_translation_pipeline/pipeline.py', 'src/marianmt_translation_pipeline/samples.py'], 'module_sha256': '7f0ae17d227b851a7af4fe8a1e7c355e23fa0d761198fcdd2daba62c4754eb1e', 'generator': 'build_notebook.py/2.1', 'notebook_spec': '2.2'}, 'python': '3.12.12', 'torch': '2.14.0+cu130', 'transformers': '4.57.6', 'cuda': True}
+[colab] Executing cell 4/19 - Infrastructure: carried module `src/marianmt_translation_pipeline/metrics.py` (you may run it without reading it)...
+[colab] Executing cell 5/19 - Infrastructure: carried module `src/marianmt_translation_pipeline/pipeline.py` (you may run it without reading it)...
+[colab] Executing cell 6/19 - Infrastructure: carried module `src/marianmt_translation_pipeline/samples.py` (you may run it without reading it)...
+[colab] Executing cell 7/19 - Infrastructure: pin, stage and verify the model (you may run it without reading it)...
+{'model_id': 'Helsinki-NLP/opus-mt-en-tl', 'revision': 'e46e1761492cb6a6fb9515a72bb55ca654815ca5', 'license': 'apache-2.0', 'files': 8, 'total_bytes': 299423522}
+{'weights_dir': '/content/weights/opus-mt-en-tl', 'fetched': ['README.md', 'config.json', 'generation_config.json', 'pytorch_model.bin', 'source.spm', 'target.spm', 'tokenizer_config.json', 'vocab.json']}
+{'verified_files': 8, 'revision': 'e46e1761492cb6a6fb9515a72bb55ca654815ca5'}
+/content/dimer_isolated_env/lib/python3.12/site-packages/transformers/models/marian/tokenization_marian.py:175: UserWarning: Recommended: pip install sacremoses.
+  warnings.warn("Recommended: pip install sacremoses.")
+{'device': 'cuda:0', 'source': 'local-snapshot'}
+[colab] Executing cell 8/19 - marianmt_translation-20...
+{'data_source': 'Tatoeba en-tl v2023-04-12 via OPUS (CC BY 2.0 FR (Tatoeba contributors; OPUS redistribution))', 'raw_pairs': 8785, 'splits': {'train': 1200, 'validation': 200, 'test': 300}, 'corpus_sha256': '9abddc7d2fcea307...'}
+{'train': {'n': 1200, 'unique_sources': 1200, 'identical_pairs': 0, 'source_chars': {'min': 5, 'max': 182}, 'digest': 'c5ade2af1fb82efb...'}}
+{'validation': {'n': 200, 'unique_sources': 200, 'identical_pairs': 0, 'source_chars': {'min': 4, 'max': 124}, 'digest': '07c992894a70a27f...'}}
+{'test': {'n': 300, 'unique_sources': 300, 'identical_pairs': 0, 'source_chars': {'min': 4, 'max': 89}, 'digest': '9511983636f628c5...'}}
+{'example': {'id': 'train-0000', 'source': 'In Singapore, it is a crime to spit on the ground.', 'target': 'Isang krimen ang pagdura sa sahig sa Singapore.'}}
+{'probe': 'duplicate id', 'rejected': "duplicate id 'same'"}
+{'probe': 'empty target', 'rejected': 'records[0]: target is empty'}
+{'probe': 'missing field', 'rejected': "records[0] is missing 'target'"}
+{'probe': 'too small', 'rejected': '3 records; 8..20000 are required'}
+[colab] Executing cell 9/19 - marianmt_translation-22...
+{'data_source': 'Tatoeba en-tl v2023-04-12 via OPUS (CC BY 2.0 FR (Tatoeba contributors; OPUS redistribution))', 'splits': {'train': 1200, 'validation': 200, 'test': 300}, 'used_for': {'train': 'learning (Section 8)', 'validation': 'choosing the epoch to keep (Section 8)', 'test': 'final comparison only (Sections 7 and 9)'}}
+------------------------------------------------------------------------------------------------
+       id | train-0000
+  English | In Singapore, it is a crime to spit on the ground.
+reference | Isang krimen ang pagdura sa sahig sa Singapore.
+------------------------------------------------------------------------------------------------
+       id | train-0001
+  English | The soldier gave his name.
+reference | Binigay ng sundalo ang kanyang pangalan.
+------------------------------------------------------------------------------------------------
+       id | train-0002
+  English | I watched TV for two hours yesterday.
+reference | Ako ay nanood ng TV nang dalawang oras kahapon.
+------------------------------------------------------------------------------------------------
+       id | train-0003
+  English | I haven't been able to find a job so far.
+reference | Hindi pa ako nakahanap ng trabaho hanggang ngayon.
+------------------------------------------------------------------------------------------------
+       id | train-0004
+  English | The train has already left.
+reference | Umalis na ang tren.
+------------------------------------------------------------------------------------------------
+       id | train-0005
+  English | I couldn't answer all the questions.
+reference | Hindi ko masagot lahat ng mga tanong.
+------------------------------------------------------------------------------------------------
+       id | train-0006
+  English | You're right for now.
+reference | Sa kasalukuyan, tama ka.
+------------------------------------------------------------------------------------------------
+       id | train-0007
+  English | No matter how much you try to convince people that chocolate is vanilla, it'll still be chocolate, even though you may manage to convince yourself and a few others that it's vanilla.
+reference | Kahit ano pang gawin mo para kumbinsihin ang mga tao na ang tsokolate ay vanilla, tsokolate pa rin ito, kahit pa makumbinsi mo ang sarili mo at ang ilang tao na vanilla ito.
+------------------------------------------------------------------------------------------------
+{'mean_characters': {'English': 31.5, 'Tagalog reference': 35.7}}
+[colab] Executing cell 10/19 - marianmt_translation-26...
+{'MAX_BATCH': 16, 'MAX_TEXT_CHARS': 4000, 'MAX_INPUT_TOKENS': 512, 'MAX_NEW_TOKENS': 512, 'MAX_NUM_BEAMS': 8, 'DEFAULT_MAX_NEW_TOKENS': 128, 'DEFAULT_NUM_BEAMS': 4}
+{'decision_rule': 'beam search over whole sequences (num_beams=4 by default, from generation_config.json); greedy argmax per step when num_beams=1; no sampling; decoding stops at </s> or max_new_tokens', 'direction': 'en->tl'}
+input00 6 -> 7 tokens, stopped_by=eos: The house is wonderful. => Ang bahay ay kahanga - hanga.
+input01 8 -> 7 tokens, stopped_by=eos: Good morning to all of you. => Magandang umaga sa inyong lahat.
+input02 7 -> 6 tokens, stopped_by=eos: Where is the nearest hospital? => Nasaan ang pinakamalapit na ospital?
+{'batch_seconds': 0.62, 'checks': {'one_result_per_input_in_order': True, 'input_within_ceiling': True, 'direction_is_en_to_tl': True, 'settings_echoed': True}, 'hit_token_ceiling': [], 'findings': 1}
+[colab] Executing cell 11/19 - marianmt_translation-28...
+{'translated': 300, 'test_records': 300, 'seconds': 4.1}
+------------------------------------------------------------------------------------------------
+        id | test-0000
+   English | Your answer is correct.
+ reference | Ang sagot mo'y tama.
+pretrained | Tama ang sagot mo.
+------------------------------------------------------------------------------------------------
+        id | test-0001
+   English | She went down on her knees to pray.
+ reference | Lumuhod siya upang manalangin.
+pretrained | Lumuhod siya upang manalangin.
+------------------------------------------------------------------------------------------------
+        id | test-0002
+   English | How disgusting!
+ reference | Napakakadiri!
+pretrained | Anong kasuklam - suklam nga!
+------------------------------------------------------------------------------------------------
+        id | test-0003
+   English | I am fed up with talking to her.
+ reference | Sawa na akong kausapin siya.
+pretrained | Ako'y sawang - sawa na sa pakikipag - usap sa kaniya.
+------------------------------------------------------------------------------------------------
+        id | test-0004
+   English | He is from France.
+ reference | Galing siya sa Pransiya.
+pretrained | Siya ay mula sa Pransiya.
+------------------------------------------------------------------------------------------------
+        id | test-0005
+   English | We should make it if the traffic isn't too heavy.
+ reference | Matutuloy tayo kung ang trapik ay di mabigat.
+pretrained | Dapat nating gawin ito kung hindi naman masyadong mabigat ang trapiko.
+------------------------------------------------------------------------------------------------
+[colab] Executing cell 12/19 - marianmt_translation-31...
+{'copy_source_baseline': {'chrf': 11.28, 'bleu': 0.0, 'n': 300}}
+{'frozen_model_test': {'chrf': 56.46, 'bleu': 27.13, 'n': 300, 'hit_token_ceiling': 0, 'adapted': False}, 'seconds': 3.4}
+{'definitions': {'chrf': 'corpus chrF, character 1..6-grams, spaces removed, beta=2 (sacrebleu chrF2 recipe, own implementation)', 'bleu': 'corpus BLEU-4, regex word/punctuation tokens lower-cased, brevity penalty (sacrebleu-style, not 13a)'}}
+{'denominators': {'sentences': 300, 'output_characters': 11151, 'reference_characters': 10119}, 'section_6b_outputs_reproduce_this_score': True}
+{'pretrained_vs_copy_source': 'above the copy-source baseline'}
+[colab] Executing cell 13/19 - marianmt_translation-34...
+{'epoch': 0, 'train_loss': None, 'val_chrf': 58.54, 'val_bleu': 28.13, 'note': 'frozen model'}
+{'epoch': 1, 'train_loss': 1.4858, 'val_chrf': 60.78, 'val_bleu': 32.46}
+{'epoch': 2, 'train_loss': 1.1166, 'val_chrf': 61.81, 'val_bleu': 34.45}
+{'trainable_parameters': 8408064, 'total_parameters': 74037760, 'trainable_share': '11.4%', 'best_epoch': 2, 'selection': 'highest validation chrF', 'seconds': 13.5}
+[colab] Executing cell 14/19 - marianmt_translation-37...
+{'chrf': {'copy_source': 11.28, 'frozen': 56.46, 'adapted': 59.56}}
+{'bleu': {'copy_source': 0.0, 'frozen': 27.13, 'adapted': 33.65}}
+{'delta_vs_frozen': {'chrf': 3.1, 'bleu': 6.52}}
+{'n_test_sentences': 300}
+{'verdicts': {'pretrained_vs_copy_source': 'above the copy-source baseline', 'adapted_vs_pretrained_chrf': 'improved'}}
+{'changed_by_adaptation': {'test_sentences': 300, 'output_changed': 196, 'sentence_chrf_up': 126, 'sentence_chrf_down': 66, 'sentence_chrf_equal': 4, 'output_unchanged': 104}}
+------------------------------------------------------------------------------------------------
+           id | test-0000
+      English | Your answer is correct.
+    reference | Ang sagot mo'y tama.
+   pretrained | Tama ang sagot mo.
+      adapted | Tama ang sagot mo.
+sentence chrF | copy 6.6 | pretrained 52.6 | adapted 52.6
+------------------------------------------------------------------------------------------------
+           id | test-0001
+      English | She went down on her knees to pray.
+    reference | Lumuhod siya upang manalangin.
+   pretrained | Lumuhod siya upang manalangin.
+      adapted | Lumuhod siya para manalangin.
+sentence chrF | copy 7.4 | pretrained 100.0 | adapted 71.2
+------------------------------------------------------------------------------------------------
+           id | test-0002
+      English | How disgusting!
+    reference | Napakakadiri!
+   pretrained | Anong kasuklam - suklam nga!
+      adapted | Anong kasuklam - suklam nga!
+sentence chrF | copy 6.4 | pretrained 8.8 | adapted 8.8
+------------------------------------------------------------------------------------------------
+           id | test-0003
+      English | I am fed up with talking to her.
+    reference | Sawa na akong kausapin siya.
+   pretrained | Ako'y sawang - sawa na sa pakikipag - usap sa kaniya.
+      adapted | Pagod na ako sa pakikipag-usap sa kanya.
+sentence chrF | copy 9.7 | pretrained 30.4 | adapted 27.9
+------------------------------------------------------------------------------------------------
+           id | test-0004
+      English | He is from France.
+    reference | Galing siya sa Pransiya.
+   pretrained | Siya ay mula sa Pransiya.
+      adapted | Siya ay mula sa Pransiya.
+sentence chrF | copy 7.8 | pretrained 56.6 | adapted 56.6
+------------------------------------------------------------------------------------------------
+           id | test-0005
+      English | We should make it if the traffic isn't too heavy.
+    reference | Matutuloy tayo kung ang trapik ay di mabigat.
+   pretrained | Dapat nating gawin ito kung hindi naman masyadong mabigat ang trapiko.
+      adapted | Dapat nating gawin kung hindi masyadong mabigat ang trapiko.
+sentence chrF | copy 11.8 | pretrained 39.3 | adapted 40.5
+------------------------------------------------------------------------------------------------
+{'report': 'outputs/marianmt_translation_evaluation_report.json', 'predictions': 'outputs/marianmt_translation_test_predictions.csv'}
+[colab] Executing cell 15/19 - marianmt_translation-39...
+surface flags over 300 test sentences (the reference column is the false-alarm check on human translations):
+{'negation': {'reference': 2, 'pretrained': 0, 'adapted': 0}}
+{'number': {'reference': 2, 'pretrained': 0, 'adapted': 0}}
+{'name': {'reference': 13, 'pretrained': 16, 'adapted': 15}}
+{'length': {'reference': 0, 'pretrained': 1, 'adapted': 1}}
+{'untranslated': {'reference': 0, 'pretrained': 2, 'adapted': 2}}
+
+Largest sentence-chrF drops after adaptation (3 shown):
+------------------------------------------------------------------------------------------------
+         id | test-0016
+    English | They're in love.
+  reference | Nagmamahalan sila.
+ pretrained | Sila'y nagmamahalan.
+    adapted | Umiibig sila.
+chrF change | -44.1
+      flags | pretrained - | adapted -
+------------------------------------------------------------------------------------------------
+         id | test-0105
+    English | They are here.
+  reference | Nandito sila.
+ pretrained | Nandito sila.
+    adapted | Narito sila.
+chrF change | -38.0
+      flags | pretrained - | adapted -
+------------------------------------------------------------------------------------------------
+         id | test-0111
+    English | Rima purchased medicine.
+  reference | Bumili si Rima ng gamot.
+ pretrained | Bumili si Rima ng gamot.
+    adapted | Bumili ng gamot si Rima.
+chrF change | -35.7
+      flags | pretrained - | adapted -
+------------------------------------------------------------------------------------------------
+
+Largest sentence-chrF gains after adaptation (3 shown):
+------------------------------------------------------------------------------------------------
+         id | test-0192
+    English | They embraced.
+  reference | Nagyakapan sila.
+ pretrained | Sila'y yumakap.
+    adapted | Nagyakapan sila.
+chrF change | 78.5
+      flags | pretrained - | adapted -
+------------------------------------------------------------------------------------------------
+         id | test-0278
+    English | This is my wife.
+  reference | Asawa ko ito.
+ pretrained | Ito ang aking asawa.
+    adapted | Asawa ko ito.
+chrF change | 75.2
+      flags | pretrained - | adapted -
+------------------------------------------------------------------------------------------------
+         id | test-0159
+    English | Tom coughed.
+  reference | Umubo si Tom.
+ pretrained | Si Tom ay umubo.
+    adapted | Umubo si Tom.
+chrF change | 66.2
+      flags | pretrained - | adapted -
+------------------------------------------------------------------------------------------------
+[colab] Executing cell 16/19 - marianmt_translation-42...
+{'settings_held_fixed': {'model': 'adapted, selected epoch 2', 'num_beams': 4, 'max_new_tokens': 128}}
+================================================================================================
+neg-1 [negation]  automatic cue carried through: True  (no Tagalog negator in the first output, one in the second)
+   original: I like this song.
+          -> Gusto ko itong kanta.
+    changed: I do not like this song.
+          -> Hindi ko gusto ang kantang ito.
+   words that differ between the two outputs: (nothing) -> hindi ko; ko itong kanta -> ang kantang ito
+================================================================================================
+neg-2 [negation]  automatic cue carried through: True  (no Tagalog negator in the first output, one in the second)
+   original: She is at home.
+          -> Nasa bahay siya.
+    changed: She is not at home.
+          -> Wala siya sa bahay.
+   words that differ between the two outputs: nasa -> wala siya sa; siya -> (nothing)
+================================================================================================
+neg-3 [negation]  automatic cue carried through: True  (no Tagalog negator in the first output, one in the second)
+   original: The store is open today.
+          -> Bukas na ang tindahan sa ngayon.
+    changed: The store is not open today.
+          -> Hindi bukas ang tindahan sa ngayon.
+   words that differ between the two outputs: (nothing) -> hindi; na -> (nothing)
+================================================================================================
+num-1 [number]  automatic cue carried through: True  ('250' in the first output and '400' in the second)
+   original: I paid 250 pesos for the ticket.
+          -> Nagbayad ako ng 250 piso para sa tiket.
+    changed: I paid 400 pesos for the ticket.
+          -> Nagbayad ako ng 400 piso para sa tiket.
+   words that differ between the two outputs: 250 -> 400
+================================================================================================
+num-2 [number]  automatic cue carried through: False  ('12' in the first output and '31' in the second)
+   original: The meeting is in room 12.
+          -> Nasa silid ang pulong.
+    changed: The meeting is in room 31.
+          -> Nasa kwarto ang pulong 31.
+   words that differ between the two outputs: silid -> kwarto; (nothing) -> 31
+================================================================================================
+name-1 [person name]  automatic cue carried through: True  ('Maria' in the first output and 'Jose' in the second)
+   original: Maria is my teacher.
+          -> Si Maria ang aking guro.
+    changed: Jose is my teacher.
+          -> Si Jose ang aking guro.
+   words that differ between the two outputs: maria -> jose
+================================================================================================
+place-1 [place name]  automatic cue carried through: False  ('Manila' in the first output and 'Cebu' in the second)
+   original: We flew to Manila yesterday.
+          -> Nagpalipad kami ng eroplano papuntang Maynila kahapon.
+    changed: We flew to Cebu yesterday.
+          -> Nagpalipad kami papuntang Cebu kahapon.
+   words that differ between the two outputs: ng eroplano -> (nothing); maynila -> cebu
+================================================================================================
+{'probe_pairs': 7, 'cue_carried_through': 5, 'quality_score': 'none (no references)', 'file': 'outputs/marianmt_translation_probes.csv'}
+[colab] Executing cell 17/19 - marianmt_translation-44...
+Skipped: type an original and a changed English sentence into the form fields, then run this cell again.
+[colab] Executing cell 18/19 - marianmt_translation-47...
+{'id': 'new-00', 'source': "Let's try something.", 'adapted': 'Subukan natin.', 'reference': 'Subukan natin to.', 'stopped_by': 'eos'}
+{'id': 'new-01', 'source': 'This is never going to end.', 'adapted': 'Hindi ito matatapos.', 'reference': 'Di ito matatapos.', 'stopped_by': 'eos'}
+{'id': 'new-02', 'source': "I just don't know what to say.", 'adapted': 'Hindi ko talaga alam kung ano ang sasabihin.', 'reference': 'Di ko lang talaga alam kung ano sasabihin.', 'stopped_by': 'eos'}
+{'id': 'new-03', 'source': 'You should sleep.', 'adapted': 'Dapat kang matulog.', 'reference': 'Dapat matulog ka na.', 'stopped_by': 'eos'}
+{'id': 'new-04', 'source': 'It is unfortunately true.', 'adapted': 'Sa kasamaang palad ito ay totoo.', 'reference': 'Sa kasawiang palad, iyon ay totoo.', 'stopped_by': 'eos'}
+{'id': 'new-05', 'source': 'For some reason I feel more alive at night.', 'adapted': 'Sa ilang kadahilanan, mas mahaba ang pakiramdam ko sa gabi.', 'reference': "Parang mas masigla ang pakiramdam ko 'pag gabi.", 'stopped_by': 'eos'}
+{'new_sentences': {'verdict': 'measured-small-sample', 'metrics': [{'name': 'chrf', 'value': 63.170445799357125}, {'name': 'bleu', 'value': 21.1569274225492}], 'reason': 'scored 6 referenced sentences; a sample this small carries no dispersion estimate'}}
+{'artifact': 'outputs/marianmt_translation_adapter', 'format': 'org.valcorza.marianmt-en-tl.adapter.v1', 'tensors': 52, 'bytes': 33638224, 'sha256': '7da6d0da8974ac85...'}
+{'reload_parity': {'identical_translations': 8, 'of': 8}, 'reloaded_best_epoch': 2}
+['marianmt_translation_adapter', 'marianmt_translation_evaluation_report.json', 'marianmt_translation_input_manifest.json', 'marianmt_translation_probes.csv', 'marianmt_translation_result.json', 'marianmt_translation_test_predictions.csv', 'marianmt_translation_train.csv', 'marianmt_translation_translations.csv']
+[colab] Executing cell 19/19 - marianmt_translation-49...
+On the Tatoeba en-tl v2023-04-12 test split (300 sentences), the adapted model achieved chrF 59.6
+and BLEU 33.7, compared with chrF 56.5 / BLEU 27.1 for the pretrained model and chrF 11.3 / BLEU 0.0
+for the copy-source baseline. Adaptation changed 196 of 300 test translations; sentence chrF rose
+for 126 and fell for 66. Inspection showed [one specific improvement or failure, quoting the
+sentence]. The controlled activity (7 instructional probe pairs; automatic cue carried through in 5)
+suggested [your observation about negation, numbers or names], but these results do not establish [a
+broader claim the evidence does not support].
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/marianmt-en-tl-translation-pipeline-ade8b40-f2cbab/marianmt_translation_colab_ade8b40_colab-cli-t4_output.ipynb'...

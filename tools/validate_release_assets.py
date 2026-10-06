@@ -42,6 +42,15 @@ EXPECTED_OUTPUTS = (
 CODE_MARKERS = (
     # Stage 4: pinned corpus, validation, disjoint split, CSV, refusal probes
     "USE_BYOD = False",
+    # MMT-M1/M2: every section that measures, compares or trains the pretrained model starts from it
+    "def reset_to_pretrained():",
+    "    if pipe.adapter is None:\n        return pipe",
+    "pipe = MarianMTTranslationPipeline.from_pretrained(weights_dir=WEIGHTS_DIR)\n    print({'reloaded': 'the pretrained model, from the verified snapshot'",
+    # MMT-m1: BYOD size bounds checked in Section 4; upload and path refusals are actionable
+    "byod_min, byod_max = byod_size_bounds(min_eval_records=MIN_RECORDS)",
+    "splits = split_dataset(records, seed=SPLIT_SEED, min_eval_records=MIN_RECORDS)",
+    "raise RuntimeError('USE_BYOD = True but BYOD_PATH is empty and this runtime has no Colab upload dialog: set BYOD_PATH to your CSV, JSON or JSONL file') from None",
+    "uploaded = files.upload() or {}",
     "corpus_bytes = fetch_corpus(cache_dir='weights/tatoeba-en-tl')",
     "splits = build_sample_dataset(read_corpus_pairs(corpus_bytes), seed=SPLIT_SEED)",
     "records = load_byod_dataset(byod_path)",
@@ -58,7 +67,8 @@ CODE_MARKERS = (
     # Stage 6: copy-source baseline and the frozen model on the test split
     "baseline_copy = copy_source_baseline(test_records)",
     "frozen_test = pipe.evaluate(test_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)",
-    "assert frozen_test['chrf'] > baseline_copy['chrf']",
+    # MMT-m2: quality outcomes are recorded verdicts, not assertions
+    "frozen_verdict = 'above the copy-source baseline' if frozen_test['chrf'] > baseline_copy['chrf'] else 'not above the copy-source baseline'",
     # Stage 7: bounded fine-tuning with explicit hyperparameters
     "adapt_result = pipe.adapt(",
     "trainable_decoder_layers=TRAINABLE_DECODER_LAYERS",
@@ -67,7 +77,8 @@ CODE_MARKERS = (
     "adapted_test = pipe.evaluate(test_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)",
     "adapted_val = pipe.evaluate(val_records, max_new_tokens=GEN_MAX_NEW_TOKENS, num_beams=NUM_BEAMS)",
     "'delta_vs_frozen'",
-    "assert adapted_test['chrf'] > frozen_test['chrf']",
+    "adaptation_verdict = 'improved' if delta_chrf > 0 else ('no gain' if delta_chrf == 0 else 'worse')",
+    "comparison['verdicts'] = {'pretrained_vs_copy_source': frozen_verdict, 'adapted_vs_pretrained_chrf': adaptation_verdict}",
     # Stage 9: new sentences, evaluation_report with references, artifact, reload parity, provenance
     "new_report = evaluation_report(new_result, [r['target'] for r in new_records]",
     "pipe.save_artifact(artifact_dir, metadata=",
@@ -114,7 +125,15 @@ MARKDOWN_MARKERS = (
     "### How to use this notebook",
     "## The task: Input → Model → Output",
     "## Roadmap",
-    "**Infrastructure — you may run this without studying it.**",
+    "> **Infrastructure.** You may run this section without studying its implementation",
+    # MMT review fixes: re-runs start from the published model, device differences, BYOD test-row reuse, hosts
+    "`reset_to_pretrained()`",
+    "**CPU and GPU give slightly different adapted numbers.**",
+    "**With BYOD there are no unused pairs**",
+    "**at least 50 and at most 10,002 records with distinct English sources**",
+    "OPUS (`object.pouta.csc.fi`)",
+    "the Hugging Face Hub (`huggingface.co`)",
+    "`DIMER_NOTEBOOK_CI_PREINSTALLED=1`",
     "## 5. Predict",
     "**reference is one acceptable translation, not the only correct wording.**",
     "**Neither score is a percentage of sentences translated correctly.**",
@@ -130,6 +149,19 @@ MARKDOWN_MARKERS = (
     "## AI Assistance Disclosure",
 )
 GUIDED_MIN_CHECKPOINTS = 5
+# Learner-facing text the MMT review fixes removed; it must not come back (m3 restart/install text, m5 "Hub only",
+# m6 the unrecorded 230 s timing, m2 the regression assertion, m1 the 8..20,000 BYOD contract).
+STALE_MARKDOWN = (
+    "Restart the runtime, then rerun",
+    "installs the pinned dependencies",
+    "the Hugging Face Hub only",
+    "Hugging Face Hub only",
+    "230 s",
+    "The Section 9 assertion",
+    "the cell asserts that adapted chrF",
+    "a dataset needs 8..20,000",
+    "unique ids, 8..20,000 records",
+)
 # Direct-library use that must stay inside the carried module cell (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded one.
 FORBIDDEN_OUTSIDE_MODULE = (
@@ -195,10 +227,9 @@ COMMON_CODE_MARKERS = (
     "PINS = [",
     "NOTEBOOK_SOURCE = {",
     "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'",
-    "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *INSTALL_PINS], check=True)",
-    "INSTALL_PINS = [f'numpy=={NUMPY_PRELOADED}' if NUMPY_PRELOADED and pin.startswith('numpy==') else pin for pin in PINS]",
-    "importlib.metadata.packages_distributions()",
-    "importlib.invalidate_caches()",
+    "LOCK_TEXT = r",
+    ".hexdigest() != LOCK_SHA256:",
+    "if len(wheel) != UV_BYTES or hashlib.sha256(wheel).hexdigest() != UV_SHA256:",
     "platform.python_version()",
     "torch.__version__",
     "MANIFEST = {",
@@ -607,7 +638,7 @@ def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
             f"{path.name}: cell {index} module_sha256 tag does not match {rel}",
         )
         _check(
-            _cell_source(cell).rstrip("\n") + "\n" == context["embedded"][module],
+            build.strip_carried_title(_cell_source(cell)).rstrip("\n") + "\n" == context["embedded"][module],
             f"{path.name}: embedded module cell {index} differs from {rel} (PAR1); regenerate the notebook",
         )
     return [index for index, _ in tagged]
@@ -649,27 +680,42 @@ def _validate_parity(path: Path, notebook: dict, code_cells: list[tuple[int, str
     _check(current == rendered, f"{path.name}: differs from tools/build_notebook.py output (PAR3); regenerate")
 
 
-def _validate_bootstrap_guard(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -> None:
-    """The stale-import guard must actually raise: `if stale:` whose body raises RuntimeError."""
-    raises = False
-    for _, _, tree in code_cells:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "stale":
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.Raise) and isinstance(sub.exc, ast.Call):
-                        func = sub.exc.func
-                        if isinstance(func, ast.Name) and func.id == "RuntimeError":
-                            raises = True
-    _check(raises, f"{path.name}: install cell must raise RuntimeError when already-imported packages change")
+def _kernel_cells(code_cells: list[tuple[int, str, ast.Module]]) -> set[int]:
+    return {index for index, source, _tree in code_cells if "# dimer: kernel cell" in source}
+
+
+def _validate_bootstrap_guard(
+    path: Path, notebook: dict, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
+) -> None:
+    """MMT-m3 (RUN1/RUN10/ENV6): the generator's isolated runtime. Exactly two cells run in the notebook kernel (the
+    hash-locked uv install and the router); every later cell runs in the managed environment, so nothing is installed
+    into the kernel and no restart is ever requested. MMT-m4 (GDL11): Sections 1-3 code cells are titled and collapsed."""
+    kernel = _kernel_cells(code_cells)
+    _check(len(kernel) == 2, f"{path.name}: exactly two kernel cells (isolated install and router) are expected, found {len(kernel)}")
+    sources = {index: source for index, source, _tree in code_cells}
+    install = next((sources[index] for index in sorted(kernel) if "LOCK_TEXT = r" in sources[index]), "")
+    for needed in ('"--managed-python"', '"--require-hashes"', '"--only-binary"', '":all:"', "UV_SHA256", "LOCK_SHA256", 'platform.machine() != "x86_64"'):
+        _check(needed in install, f"{path.name}: the isolated install cell must use {needed} (MMT-m3)")
+    router = "\n".join(sources[index] for index in kernel)
+    _check("_ip.input_transformers_cleanup.append(_route_to_isolated_runtime)" in router, f"{path.name}: later cells must be routed to the isolated environment (MMT-m3)")
+    _check("module.__spec__ = importlib.machinery.ModuleSpec(name, None, is_package=package)" in router, f"{path.name}: the worker's google.colab stubs must carry a module spec")
+    stale = [marker for marker in STALE_MARKDOWN if marker in markdown]
+    _check(not stale, f"{path.name}: stale learner-facing text: {stale}")
+    setup = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"][: 3 + len(embedded) + 1]
+    _check(all(cell.get("metadata", {}).get("cellView") == "form" for cell in setup), f"{path.name}: Sections 1-3 code cells must be collapsed (cellView: form) (MMT-m4)")
+    _check(all(_cell_source(cell).startswith("# @title Infrastructure: ") for cell in setup), f"{path.name}: Sections 1-3 code cells must be titled '# @title Infrastructure: ...' (MMT-m4)")
 
 
 def _validate_notebook_content(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
+    path: Path, notebook: dict, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
 ) -> None:
     model_id, _revision = _package_identity()
     stripped = {index: _strip_comments(source) for index, source, _ in code_cells}
     code = "\n".join(stripped.values())
-    outside = "\n".join(text for index, text in stripped.items() if index not in embedded)
+    # The two kernel cells (checked by _validate_bootstrap_guard) download the pinned uv wheel and run uv; they are
+    # infrastructure, not model logic, so G2 does not apply to them.
+    kernel = _kernel_cells(code_cells)
+    outside = "\n".join(text for index, text in stripped.items() if index not in embedded and index not in kernel)
     missing = [marker for marker in COMMON_CODE_MARKERS + CODE_MARKERS if marker not in code]
     _check(not missing, f"{path.name}: missing required source markers: {missing}")
     present = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(code)]
@@ -683,7 +729,7 @@ def _validate_notebook_content(
     _validate_gates(path, code_cells)
     _validate_empty_defaults(path, code_cells)
     _validate_guided_layer(path, markdown)
-    _validate_bootstrap_guard(path, code_cells)
+    _validate_bootstrap_guard(path, notebook, code_cells, markdown, embedded)
     for filename in EXPECTED_OUTPUTS:
         _check(filename in code, f"{path.name}: must export {filename}")
     missing_md = [marker for marker in COMMON_MARKDOWN_MARKERS + MARKDOWN_MARKERS if marker not in markdown]
@@ -705,7 +751,7 @@ def validate_notebooks() -> None:
     _model_id, revision = _package_identity()
     _validate_identity(path, code_cells, embedded, revision)
     _validate_parity(path, notebook, code_cells, build)
-    _validate_notebook_content(path, code_cells, markdown, embedded)
+    _validate_notebook_content(path, notebook, code_cells, markdown, embedded)
     registry = _read(tutorials / "README.md")
     _check(f"`{path.name}`" in registry, f"{path.name} missing from tutorials/README.md")
     _check(f"`{EXPECTED_PROFILE}`" in registry, f"tutorials/README.md must record `{EXPECTED_PROFILE}`")
