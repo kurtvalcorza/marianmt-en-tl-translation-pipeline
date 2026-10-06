@@ -26,8 +26,9 @@ CI runs `tools/validate_release_assets.py`, which checks:
   path; one cell per carried module (`pipeline.py`, `samples.py`, `metrics.py`), each equal to its source after the
   generator's documented rewrites; the inline `MANIFEST` equal to the committed 8-entry snapshot manifest and the
   inline `PINS` equal to the `pyproject.toml` runtime pins; the notebook byte-identical (on LF) to
-  `tools/build_notebook.py` output for its recorded revision; the pinned-install cell with its
-  restart-on-stale-import guard; `NOTEBOOK_SOURCE` recorded in exports;
+  `tools/build_notebook.py` output for its recorded revision; exactly two kernel cells (the hash-locked `uv`
+  isolated-environment install and the router, with spec-carrying `google.colab` stubs), Sections 1–3 titled and
+  collapsed (`cellView: form`), no restart text; `NOTEBOOK_SOURCE` recorded in exports;
 - `MODEL_ID`/`MODEL_REVISION` bound only in the carried module cell (and repeated in the inline manifest, which the
   notebook asserts against the module before fetching), the revision a 40-hex immutable commit, and the same
   identity string in `README.md`, `MODEL_CARD.md` and `docs/WEIGHTS.md` with no stray revisions;
@@ -36,7 +37,7 @@ CI runs `tools/validate_release_assets.py`, which checks:
   `read_corpus_pairs` + `build_sample_dataset(seed=SPLIT_SEED)` / `load_byod_dataset`, `validate_dataset` per split,
   `check_split_disjoint`, `write_dataset_csv`, `validate_inputs` with the `num_beams` refusal probe, `pipe.translate`
   with the sanity checks, `copy_source_baseline`, `pipe.evaluate` on the frozen model and on the validation and test
-  splits after adaptation with the chrF assertions, `pipe.adapt` with its explicit hyperparameters, `evaluation_report`
+  splits after adaptation with recorded verdicts, `reset_to_pretrained()` before every section that measures or trains the pretrained model, the Section 4 BYOD size bounds, `pipe.adapt` with its explicit hyperparameters, `evaluation_report`
   with references on the unseen sentences, `pipe.save_artifact`, `MarianMTTranslationPipeline.from_artifact` and the
   reload-parity assertion, and the provenance fields `weight_format`, the pickle's `weight_sha256` and the `corpus`
   block, plus the guided-layer code — `translate_all` over the test split before and after adaptation, the
@@ -88,8 +89,9 @@ Before changing the registry status from `Candidate` to `Release-grade`:
 4. verify that Section 1 reports `NOTEBOOK_SOURCE.repository_revision` equal to the revision recorded in
    `metadata.dimer.generated_from` and that the installed core package versions equal the inline `PINS`
    (= `pyproject.toml`): `torch==2.14.0`, `transformers==4.57.6`, `tokenizers==0.22.2`, `sentencepiece==0.2.2`,
-   `huggingface-hub==0.36.2`, `safetensors==0.8.0`, `numpy==2.5.3` — except that a NumPy 2.x the host kernel had already
-   imported is kept and reported by the install cell instead of being reinstalled, so no restart is needed (RUN10);
+   `huggingface-hub==0.36.2`, `safetensors==0.8.0`, `numpy==2.5.3`, installed by the Section 1 kernel cell into the
+   isolated environment (managed CPython 3.12.12, 48 hash-locked packages from `tutorials/requirements-colab.lock.txt`)
+   with nothing installed into the kernel, and that the whole run completes in one pass with no restart (RUN10);
 5. verify every default-path stage completes:
    - pinned runtime installed from the inline `PINS` with no GitHub access;
    - the three carried module cells execute (defining `MarianMTTranslationPipeline`, `verify_snapshot`,
@@ -119,14 +121,14 @@ Before changing the registry status from `Candidate` to `Release-grade`:
      references;
    - Section 7: the copy-source baseline (chrF ≈ 11.3, BLEU 0.0 on the sample split) and the frozen model's test
      score (chrF ≈ 56.5, BLEU ≈ 27.1 on CPU float32 — read as a sanity match against upstream's 26.6, not a
-     reproduction), with the cell's assertion that the frozen model beats the baseline, and
+     reproduction), `adapted` `False`, the verdict `above the copy-source baseline`, and
      `section_6b_outputs_reproduce_this_score` `True`;
    - Section 8: `pipe.adapt` printing epoch 0 as the frozen model, 8,408,064 trainable of 74,037,760 parameters,
      1,200 training pairs, and a two-epoch history with validation chrF rising (≈ 58.5 → 60.3 → 61.5 in the
      recorded run; `best_epoch` 2);
    - Section 9: `pipe.evaluate` on the validation and test splits with the three-way comparison and
-     `outputs/marianmt_translation_evaluation_report.json` written (the cell asserts the adapted test chrF exceeds the
-     frozen one — on the sample ≈ 59.4 versus ≈ 56.5, BLEU ≈ 33.8 versus ≈ 27.1), the `changed_by_adaptation` counts
+     `outputs/marianmt_translation_evaluation_report.json` written (verdict `improved` — on the sample ≈ 59.4 (CPU) or
+     59.56 (T4) versus ≈ 56.5, BLEU ≈ 33.8 / 33.65 versus ≈ 27.1), the `changed_by_adaptation` counts
      (changed / sentence chrF up / down / equal / unchanged) and `outputs/marianmt_translation_test_predictions.csv`
      (300 rows);
    - Section 10: the five surface-flag counts for reference, pretrained and adapted over the 300 test sentences, and
@@ -151,6 +153,11 @@ Before changing the registry status from `Candidate` to `Release-grade`:
 8. record no access tokens or other secrets.
 
 A known-failing default path in the supported runtime blocks release (REL11).
+
+For the active-learning and reuse journeys, also re-run from Section 6a with `NUM_BEAMS = 1` after the default
+run (Section 7 must print `adapted` `False` and Sections 6a–13 must complete), and run BYOD as a re-run after the
+default path (`USE_BYOD = True`, `BYOD_PATH` set, from Section 4): Section 4 must print the reload of the
+pretrained model, and the adapter manifest's `adapter.started_from` must name the pinned base (REL12).
 
 ## Manual clean-runtime evidence
 
@@ -183,6 +190,8 @@ runtime, not general estimates.
 
 ## Current status
 
-**Candidate.** The notebook was revised into the guided curriculum unit *English–Tagalog Translation — Preserving Meaning Across Languages* (DIMER Notebook Specification 2.2, `GUIDED`), which produced a new blob; the three carried modules are byte-identical to the released ones. The current blob `6ae2ce15` passed a clean hosted Kaggle Tesla T4 `Run all` on 2026-09-27 in **one pass with no restart** (RUN10), before it was committed (rows above). It supersedes `08bf3b6b`, which passed on Kaggle only after the executor's automatic restart and stopped at the install cell in Colab, because the host kernel had already imported NumPy and cuda-bindings' lazy `cuda` namespace; the generator's opt-in `hosted-preload-aware` install guard fixes both. Promotion to Release-grade is the maintainer's release decision once `git rev-parse <commit>:tutorials/marianmt_translation_colab.ipynb` equals `6ae2ce15`; any further change to the notebook invalidates that run. The previous blob `1adc963a` (committed at `292d4fa`) was Release-grade on a clean Kaggle Tesla T4 run on 2026-09-19 (11/11 ok (1 restart after install cell), 274.3 s); that record is history and does not cover the revision.
+**Candidate.** The 2026-10-06 review fixes (review PR #9: findings MMT-M1, MMT-M2, MMT-m1..m8) produced a new blob again — an isolated, hash-locked uv runtime in place of the in-kernel install (Linux x86_64 only), re-runs that always start from the published model, BYOD size bounds checked in Section 4, and recorded verdicts instead of quality assertions — so no hosted run covers the current notebook; the records of `6ae2ce15` describe the previous blob. The paragraph below describes the previous blob.
+
+**Previous blob (history).** The notebook was revised into the guided curriculum unit *English–Tagalog Translation — Preserving Meaning Across Languages* (DIMER Notebook Specification 2.2, `GUIDED`), which produced a new blob; the three carried modules are byte-identical to the released ones. The current blob `6ae2ce15` passed a clean hosted Kaggle Tesla T4 `Run all` on 2026-09-27 in **one pass with no restart** (RUN10), before it was committed (rows above). It supersedes `08bf3b6b`, which passed on Kaggle only after the executor's automatic restart and stopped at the install cell in Colab, because the host kernel had already imported NumPy and cuda-bindings' lazy `cuda` namespace; the generator's opt-in `hosted-preload-aware` install guard fixes both. Promotion to Release-grade is the maintainer's release decision once `git rev-parse <commit>:tutorials/marianmt_translation_colab.ipynb` equals `6ae2ce15`; any further change to the notebook invalidates that run. The previous blob `1adc963a` (committed at `292d4fa`) was recorded as Release-grade on a clean Kaggle Tesla T4 run on 2026-09-19 (11/11 ok (1 restart after install cell), 274.3 s); that run needed a restart, so it would not meet RUN10 today, and the record is history that does not cover the revision.
 
 **BYOD (REL12).** The BYOD branch's evidence is recorded separately from the default path: a local pre-flight accepted a representative 400-row CSV through `BYOD_PATH` (all stages ran; adaptation kept epoch 0 and the non-improvement was reported) and rejected a CSV without `target`. The BYOD branch has **not** been run in a hosted runtime.

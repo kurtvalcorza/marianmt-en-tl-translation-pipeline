@@ -489,9 +489,21 @@ class MarianMTTranslationPipeline:
         frozen). Teacher-forced cross-entropy on the Tagalog target (label smoothing 0), AdamW at a fixed
         learning rate with gradient clipping at 1.0, sources and targets truncated to MAX_TRAIN_TOKENS
         SentencePiece pieces **during training only**. Epoch 0 records the frozen model's validation chrF;
-        the epoch with the highest validation chrF is kept."""
+        the epoch with the highest validation chrF is kept.
+
+        Adaptation always starts from the pinned base: a pipeline that already carries an adaptation (from an
+        earlier ``adapt`` or ``load_artifact``) is refused, so epoch 0 is the pretrained model and the adapter
+        manifest's ``started_from`` names the base weight digest."""
         from .samples import validate_dataset
 
+        if self.adapter is not None:
+            raise RuntimeError(
+                "this pipeline is already adapted (best_epoch "
+                f"{self.adapter.get('best_epoch')}); adapt() starts from the pinned base only, so its "
+                "epoch 0 is the pretrained model: load a fresh pipeline with "
+                "MarianMTTranslationPipeline.from_pretrained() (in the notebook, run "
+                "reset_to_pretrained()) and adapt that"
+            )
         if not isinstance(epochs, int) or not 1 <= epochs <= 20:
             raise ValueError("epochs must be an int in 1..20")
         if not (0.0 < lr <= 1e-2):
@@ -591,6 +603,11 @@ class MarianMTTranslationPipeline:
         for param in model.parameters():
             param.requires_grad_(False)
         self.adapter = {
+            "started_from": {
+                "weights": "pinned base",
+                "weight_file": WEIGHT_FILE,
+                "weight_sha256": WEIGHT_SHA256,
+            },
             "trainable_decoder_layers": trainable_decoder_layers,
             "trainable_names": names,
             "n_trainable": n_trainable,

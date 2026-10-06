@@ -29,7 +29,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .pipeline import MAX_TEXT_CHARS, MODEL_ID
+from .pipeline import MAX_EVAL_RECORDS, MAX_TEXT_CHARS, MODEL_ID
 
 CORPUS_NAME = "Tatoeba"
 CORPUS_RELEASE = "v2023-04-12"
@@ -226,8 +226,13 @@ def split_dataset(
     val_fraction: float = 0.15,
     test_fraction: float = 0.2,
     seed: int = 0,
+    min_eval_records: int = 0,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Seeded shuffle of a BYOD dataset into train/validation/test after de-duplicating sources."""
+    """Seeded shuffle of a BYOD dataset into train/validation/test after de-duplicating sources.
+
+    Refuses, naming the bound, a split that leaves fewer than MIN_RECORDS training records, fewer than
+    ``min_eval_records`` test (or, when ``val_fraction`` > 0, validation) records, or more than
+    MAX_EVAL_RECORDS test or validation records (the most ``evaluate`` scores in one call)."""
     if not (0.0 <= val_fraction < 1.0 and 0.0 < test_fraction < 1.0 and val_fraction + test_fraction < 1.0):
         raise ValueError("fractions must satisfy 0 <= val < 1, 0 < test < 1, val + test < 1")
     checked = validate_dataset(records)["records"]
@@ -246,11 +251,53 @@ def split_dataset(
         "validation": unique[n_test : n_test + n_val],
         "train": unique[n_test + n_val :],
     }
+    low, high = byod_size_bounds(
+        val_fraction=val_fraction, test_fraction=test_fraction, min_eval_records=min_eval_records
+    )
     if len(splits["train"]) < MIN_RECORDS:
         raise ValueError(
-            f"split leaves {len(splits['train'])} training records; at least {MIN_RECORDS} are required"
+            f"split leaves {len(splits['train'])} training records; at least {MIN_RECORDS} are required: "
+            f"supply at least {low} records with distinct English sources (at val_fraction={val_fraction}, "
+            f"test_fraction={test_fraction})"
         )
+    for name in ("test", "validation") if val_fraction > 0 else ("test",):
+        if len(splits[name]) < min_eval_records:
+            raise ValueError(
+                f"split puts {len(splits[name])} records in {name}; at least {min_eval_records} are "
+                f"required: supply at least {low} records with distinct English sources (at "
+                f"val_fraction={val_fraction}, test_fraction={test_fraction})"
+            )
+        if len(splits[name]) > MAX_EVAL_RECORDS:
+            raise ValueError(
+                f"split puts {len(splits[name])} records in {name}; evaluation is capped at "
+                f"MAX_EVAL_RECORDS={MAX_EVAL_RECORDS}: supply at most {high} records with distinct English "
+                f"sources (at val_fraction={val_fraction}, test_fraction={test_fraction}), or use smaller "
+                "fractions"
+            )
     return splits
+
+
+def byod_size_bounds(
+    *, val_fraction: float = 0.15, test_fraction: float = 0.2, min_eval_records: int = 0
+) -> tuple[int, int]:
+    """The (minimum, maximum) number of records with distinct English sources that `split_dataset`
+    accepts at these fractions: the minimum leaves MIN_RECORDS training records and at least
+    `min_eval_records` test (and validation) records, the maximum keeps the test and validation splits
+    within MAX_EVAL_RECORDS (what `evaluate` and `adapt` score). MAX_RECORDS still caps the file."""
+
+    def sizes(n: int) -> tuple[int, int, int]:
+        n_test = max(1, round(n * test_fraction))
+        n_val = round(n * val_fraction)
+        return n_test, n_val, n - n_test - n_val
+
+    def enough(n: int) -> bool:
+        n_test, n_val, n_train = sizes(n)
+        evals = (n_test, n_val) if val_fraction > 0 else (n_test,)
+        return n_train >= MIN_RECORDS and min(evals) >= min_eval_records
+
+    low = next(n for n in range(MIN_RECORDS, MAX_RECORDS + 1) if enough(n))
+    high = max(n for n in range(low, MAX_RECORDS + 1) if max(sizes(n)[:2]) <= MAX_EVAL_RECORDS)
+    return low, high
 
 
 def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:

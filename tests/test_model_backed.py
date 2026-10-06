@@ -33,8 +33,10 @@ PAIRS = [
 RECORDS = [{"id": f"p{i:02d}", "source": s, "target": t} for i, (s, t) in enumerate(PAIRS)]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def pipe():
+    # One fresh pipeline per test: adapt() refuses an already-adapted pipeline (MMT-M1), so tests
+    # that adapt must not share one.
     return MarianMTTranslationPipeline.from_pretrained(device="cpu")
 
 
@@ -47,6 +49,10 @@ def test_one_epoch_adaptation_and_artifact_round_trip(pipe, tmp_path):
     result = pipe.adapt(RECORDS[:8], RECORDS[8:], epochs=1, trainable_decoder_layers=1, batch_size=4)
     assert result["n_trainable"] == 4_204_032 and result["history"][0]["note"] == "frozen model"
     assert all(name.startswith("model.decoder.layers.5.") for name in result["trainable_names"])
+    # MMT-M2: the adapter (and its manifest) names the weights it started from
+    assert result["started_from"]["weights"] == "pinned base"
+    with pytest.raises(RuntimeError, match="already adapted"):
+        pipe.adapt(RECORDS[:8], RECORDS[8:], epochs=1, trainable_decoder_layers=1, batch_size=4)
     artifact = pipe.save_artifact(tmp_path / "adapter", {"note": "test"})
     manifest = json.loads((artifact / "manifest.json").read_text(encoding="utf-8"))
     assert len(manifest["tensors"]) == len(result["trainable_names"])
