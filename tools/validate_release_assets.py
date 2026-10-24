@@ -85,7 +85,7 @@ CODE_MARKERS = (
     "reloaded = MarianMTTranslationPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, device=pipe.device)",
     "assert parity['identical_translations'] == parity['of']",
     "weight_entry = next(entry for entry in snapshot['files'] if entry['path'] == WEIGHT_FILE)",
-    "'weight_format': 'pytorch pickle, digest-verified, loaded with weights_only=True'",
+    "'weight_format': 'safetensors conversion of the digest-verified pytorch_model.bin, pinned SHA-256, strict load'",
     "'corpus': {'name': CORPUS_NAME, 'release': CORPUS_RELEASE, 'url': CORPUS_URL, 'sha256': CORPUS_SHA256, 'license': CORPUS_LICENSE}",
     "'model_revision': MODEL_REVISION",
     "'model_license': MODEL_LICENSE",
@@ -110,7 +110,7 @@ MARKDOWN_MARKERS = (
     "**EN→TL only**",
     "**beam search with 4 beams**",
     "**The checkpoint is a pickle:**",
-    "`use_safetensors=False, weights_only=True`",
+    "reads it once with `torch.load(weights_only=True)`",
     "**no probability, confidence or score of any kind**",
     "**rejects with a `ValueError` naming the count, never silently cuts**",
     "**copy-source baseline**",
@@ -419,9 +419,11 @@ WEIGHT_DOCS = ("README.md", "MODEL_CARD.md", "docs/WEIGHTS.md")
 EXTERNAL_WEIGHT_BYTES: dict[int, str] = {
     312_459: "OPUS-Tatoeba v2023-04-12 moses/en-tl.txt.zip (dataset)",
     33_638_224: "adapter.safetensors from save_artifact (default two blocks, Kaggle run 2026-09-19)",
+    296409812: "safetensors conversion of pytorch_model.bin (served file, written by convert_checkpoint)",
 }
 EXTERNAL_WEIGHT_DIGESTS: dict[str, str] = {
     "9abddc7d2fcea307e8582285617d1a10246fdb9050b6c6345243cb4b9991f40b": "OPUS-Tatoeba v2023-04-12 moses/en-tl.txt.zip (dataset)",
+    "1c7747e1f1da8e6969b16a8f1cba761ea23d28ec9d8dd6cf91b8571c710e92c2": "safetensors conversion of pytorch_model.bin (CONVERTED_SHA256, the served file)",
 }
 _DIGEST = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
 _GROUPED = r"(\d{1,3}(?:[,\u202f\u00a0 ]\d{3})+|\d+)"

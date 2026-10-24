@@ -1,10 +1,15 @@
 """English-to-Tagalog machine translation with the pinned ``Helsinki-NLP/opus-mt-en-tl`` checkpoint.
 
-The class loads weights only from a digest-verified local snapshot (``weights/opus-mt-en-tl/``) or, when
-explicitly allowed, from the Hugging Face Hub at the pinned revision. The upstream snapshot ships its
-weights as ``pytorch_model.bin`` — a pickle, not SafeTensors — so the trust boundary is the SHA-256 in the
-manifest (checked before the load) plus weights_only=True deserialization in ``transformers``. Two
-task methods: ``translate`` — a batch of English strings in, one Tagalog string per input out — and
+The class loads weights only from a digest-verified local snapshot (``weights/opus-mt-en-tl/``), whose
+missing files it fetches from the Hugging Face Hub at the pinned revision only when explicitly allowed. The
+upstream snapshot ships its weights as ``pytorch_model.bin`` — a pickle, not SafeTensors — so the verified
+file is read once with ``torch.load(..., weights_only=True)``, strict-loaded into ``MarianMTModel`` built
+from ``config.json``, and converted into a safetensors file whose SHA-256 is pinned below; the four tied
+embedding / output-projection names are stored once, under ``model.shared.weight``, as transformers' own
+safetensors save stores them. The model is served only from that conversion, with ``strict=True``; once it
+exists the pickle file is neither required nor read.
+
+Two task methods: ``translate`` — a batch of English strings in, one Tagalog string per input out — and
 ``adapt`` — bounded supervised fine-tuning of the last decoder layers on a validated parallel dataset,
 with ``evaluate`` (chrF / BLEU against references, see ``metrics.py``) and a safetensors adapter artifact
 that reloads against the pinned base. Direction is EN -> TL only; the checkpoint has no reverse direction.
@@ -15,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -45,6 +51,10 @@ DECISION_RULE = (
 WEIGHT_SHA256 = (
     "e418d573a717b2c81eaa3a80c8eb68f203c14c6b734dd36d41708c1369d0eb44"  # manifest digest of WEIGHT_FILE
 )
+# The served file: the model's state dict converted once into safetensors (no code, no pickle).
+CONVERTED_WEIGHTS_FILE = "model.converted.safetensors"
+CONVERTED_SHA256 = "1c7747e1f1da8e6969b16a8f1cba761ea23d28ec9d8dd6cf91b8571c710e92c2"
+CONVERTED_METADATA = {"format": "pt"}
 PARAMETER_COUNT = 74_037_760
 DECODER_LAYERS = 6  # config.json decoder_layers
 DEFAULT_TRAINABLE_DECODER_LAYERS = 2  # the last two decoder blocks (8,408,064 parameters)
@@ -73,8 +83,9 @@ def _read_manifest(root: Path) -> dict[str, Any]:
         return json.load(fh)
 
 
-def verify_snapshot(path: str | Path | None = None) -> dict[str, Any]:
-    """Check a local snapshot against its manifest; raise naming the first mismatch."""
+def verify_snapshot(path: str | Path | None = None, *, include_source: bool = True) -> dict[str, Any]:
+    """Check a local snapshot against its manifest; raise naming the first mismatch. With
+    ``include_source=False`` (the conversion already exists) the pickle weights entry is not required."""
     root = Path(path) if path is not None else DEFAULT_WEIGHTS_DIR
     manifest = _read_manifest(root)
     if manifest.get("modelId") != MODEL_ID:
@@ -82,6 +93,8 @@ def verify_snapshot(path: str | Path | None = None) -> dict[str, Any]:
     if manifest.get("revision") != MODEL_REVISION:
         raise ValueError(f"manifest revision {manifest.get('revision')!r} != {MODEL_REVISION!r}")
     for entry in manifest.get("files", []):
+        if entry["path"] == WEIGHT_FILE and not include_source:
+            continue
         file_path = root / entry["path"]
         if not file_path.is_file():
             raise FileNotFoundError(f"snapshot file missing: {file_path}")
@@ -106,6 +119,7 @@ def stage_missing_files(
     *,
     allow_download: bool = False,
     downloader: Callable[[str, Path], None] | None = None,
+    include_source: bool = True,
 ) -> list[str]:
     """Fetch manifest-listed files that are absent locally (a fresh clone commits the manifest but
     git-ignores the weights). Returns the relative paths fetched; `verify_snapshot` still runs after."""
@@ -116,7 +130,11 @@ def stage_missing_files(
             f"manifest names {manifest.get('modelId')}@{manifest.get('revision')}, "
             f"package pins {MODEL_ID}@{MODEL_REVISION}; refusing to stage"
         )
-    missing = [entry["path"] for entry in manifest["files"] if not (root / entry["path"]).is_file()]
+    missing = [
+        entry["path"]
+        for entry in manifest["files"]
+        if not (root / entry["path"]).is_file() and (include_source or entry["path"] != WEIGHT_FILE)
+    ]
     if not missing:
         return []
     if not allow_download:
@@ -296,6 +314,159 @@ def evaluation_report(
     }
 
 
+def _build_from_config(root: Path) -> Any:
+    """``MarianMTModel`` with random weights from the snapshot's verified ``config.json``, carrying the
+    snapshot's ``generation_config.json`` as ``from_pretrained`` would (no Hub, no repository code)."""
+    from transformers import GenerationConfig, MarianConfig, MarianMTModel
+
+    config = MarianConfig.from_pretrained(str(root), local_files_only=True)
+    if "MarianMTModel" not in (config.architectures or []):
+        raise ValueError(f"snapshot config.json names {config.architectures}, not MarianMTModel")
+    model = MarianMTModel(config)
+    model.generation_config = GenerationConfig.from_pretrained(str(root), local_files_only=True)
+    return model
+
+
+def _read_manifest_files(root: Path) -> list[dict[str, Any]]:
+    with open(root / MANIFEST_NAME, encoding="utf-8") as fh:
+        return list(json.load(fh).get("files", []))
+
+
+def _write_converted(state: Mapping[str, Any], target: Path) -> None:
+    """Write a state dict as safetensors, byte-reproducibly: every tensor is cloned into its own contiguous
+    CPU storage (safetensors refuses shared storage) and the one-key metadata header has a fixed order."""
+    from safetensors.torch import save_file
+
+    tensors = {name: value.detach().to("cpu").contiguous().clone() for name, value in state.items()}
+    save_file(tensors, str(target), metadata=dict(CONVERTED_METADATA))
+
+
+def _tied_groups(model: Any) -> list[list[str]]:
+    """State-dict names that share one storage in ``model`` (its tied weights), each group sorted."""
+    groups: dict[tuple[int, int, tuple[int, ...]], list[str]] = {}
+    for name, tensor in model.state_dict().items():
+        key = (tensor.untyped_storage().data_ptr(), tensor.storage_offset(), tuple(tensor.shape))
+        groups.setdefault(key, []).append(name)
+    return [sorted(names) for names in groups.values() if len(names) > 1]
+
+
+def _tied_keep(model: Any, names: Sequence[str]) -> str:
+    """The name transformers' safetensors save keeps for a tied group: the first (sorted) name that the
+    model's ``_tied_weights_keys`` does not list as the derived copy."""
+    patterns = list(getattr(model, "_tied_weights_keys", None) or [])
+    free = [name for name in names if not any(re.search(pattern, name) for pattern in patterns)]
+    return (free or list(names))[0]
+
+
+def _source_to_model_state(model: Any, state: Mapping[str, Any]) -> dict[str, Any]:
+    """Map a ``pytorch_model.bin`` state dict onto ``model``'s own state-dict names, the way transformers'
+    loader does, and refuse anything else: a source key that is not a model key is accepted only as a
+    non-persistent buffer equal to the model's own value (``position_ids``), and a missing model key only
+    as a tied copy of a tensor the source holds (equal values are required across a tied group)."""
+    import torch
+
+    expected = model.state_dict()
+    buffers = dict(model.named_buffers())
+    prepared: dict[str, Any] = {}
+    for name, tensor in state.items():
+        if name in expected:
+            prepared[name] = tensor
+        elif name in buffers and torch.equal(buffers[name].cpu(), tensor):
+            continue  # a non-persistent buffer older checkpoints saved; the model rebuilds it identically
+        else:
+            raise ValueError(f"{WEIGHT_FILE}: unexpected tensor {name!r}")
+    for group in _tied_groups(model):
+        present = [name for name in group if name in prepared]
+        if not present:
+            raise ValueError(f"{WEIGHT_FILE}: no tensor for the tied group {group}")
+        if any(not torch.equal(prepared[present[0]], prepared[name]) for name in present[1:]):
+            raise ValueError(f"{WEIGHT_FILE}: tied tensors {present} differ")
+        for name in group:
+            prepared.setdefault(name, prepared[present[0]])
+    missing = sorted(set(expected) - set(prepared))
+    if missing:
+        raise ValueError(f"{WEIGHT_FILE}: missing tensors {missing[:5]} (+{max(len(missing) - 5, 0)})")
+    return prepared
+
+
+def _serving_state(model: Any) -> dict[str, Any]:
+    """``model``'s state dict with each tied group reduced to the one name transformers would keep."""
+    state = model.state_dict()
+    for group in _tied_groups(model):
+        keep = _tied_keep(model, group)
+        for name in group:
+            if name != keep:
+                state.pop(name)
+    return state
+
+
+def _load_converted(model: Any, path: Path) -> None:
+    """Strict-load the safetensors conversion into ``model``, restoring each tied name from the kept one."""
+    from safetensors.torch import load_file
+
+    state = load_file(str(path))
+    for group in _tied_groups(model):
+        present = [name for name in group if name in state]
+        if len(present) != 1:
+            raise ValueError(f"{path.name}: tied group {group} must be stored once, found {present}")
+        for name in group:
+            state.setdefault(name, state[present[0]])
+    model.load_state_dict(state, strict=True)
+
+
+def verify_converted(path: str | Path | None = None) -> dict[str, Any]:
+    """Check the converted serving file against its pinned SHA-256; raise on a missing or altered file."""
+    root = Path(path) if path is not None else DEFAULT_WEIGHTS_DIR
+    file_path = root / CONVERTED_WEIGHTS_FILE
+    if not file_path.is_file():
+        raise FileNotFoundError(f"converted weights missing: {file_path}")
+    digest = _sha256(file_path)
+    if digest != CONVERTED_SHA256:
+        raise ValueError(f"{CONVERTED_WEIGHTS_FILE}: sha256 {digest} != pinned {CONVERTED_SHA256}")
+    return {"path": CONVERTED_WEIGHTS_FILE, "bytes": file_path.stat().st_size, "sha256": digest}
+
+
+def convert_checkpoint(path: str | Path | None = None) -> dict[str, Any]:
+    """Convert the verified ``pytorch_model.bin`` into the pinned safetensors file, once.
+
+    The whole snapshot must pass `verify_snapshot` first. The pickle is read with
+    ``torch.load(..., weights_only=True)`` and must be a flat dict of tensors; it is mapped onto the model
+    built from ``config.json`` (`_source_to_model_state`) and loaded with ``strict=True``. The model's own
+    state dict, each tied group stored once as transformers' safetensors save stores it, is written; the
+    file must hash to `CONVERTED_SHA256`, or it is deleted and the conversion refused."""
+    root = Path(path) if path is not None else DEFAULT_WEIGHTS_DIR
+    source = verify_snapshot(root)
+    listed = {e["path"]: e.get("sha256") for e in _read_manifest_files(root)}
+    if listed.get(WEIGHT_FILE) != WEIGHT_SHA256:
+        raise ValueError(
+            f"{WEIGHT_FILE}: manifest sha256 {listed.get(WEIGHT_FILE)} != pinned {WEIGHT_SHA256}"
+        )
+    import torch
+
+    state = torch.load(root / WEIGHT_FILE, map_location="cpu", weights_only=True)
+    if not isinstance(state, dict) or any(not isinstance(v, torch.Tensor) for v in state.values()):
+        raise ValueError(f"{WEIGHT_FILE} did not unpickle to a flat state dict of tensors")
+    model = _build_from_config(root)
+    model.load_state_dict(_source_to_model_state(model, state), strict=True)
+    serving = _serving_state(model)
+    target = root / CONVERTED_WEIGHTS_FILE
+    partial = target.with_name(target.name + ".partial")
+    _write_converted(serving, partial)
+    digest = _sha256(partial)
+    if digest != CONVERTED_SHA256:
+        partial.unlink()
+        raise ValueError(
+            f"conversion of {WEIGHT_FILE} hashed to {digest}, not the pinned {CONVERTED_SHA256}"
+        )
+    partial.replace(target)
+    return {
+        "source": source,
+        "converted": verify_converted(root),
+        "tensors": len(serving),
+        "tied": _tied_groups(model),
+    }
+
+
 @dataclass
 class MarianMTTranslationPipeline:
     """``_runner(texts, max_new_tokens, num_beams)`` -> list of ``(translation, generated_tokens,
@@ -318,32 +489,31 @@ class MarianMTTranslationPipeline:
         allow_download: bool = False,
     ) -> MarianMTTranslationPipeline:
         root = Path(weights_dir) if weights_dir is not None else DEFAULT_WEIGHTS_DIR
-        if (root / MANIFEST_NAME).is_file():
-            stage_missing_files(root, allow_download=allow_download)
-            verify_snapshot(root)
-            location, kwargs, source = str(root), dict(local_files_only=True), "local-snapshot"
-        elif allow_download:
-            location, kwargs, source = MODEL_ID, dict(revision=MODEL_REVISION), "hf-hub"
-        else:
-            raise FileNotFoundError(f"no verified snapshot at {root} and allow_download=False")
+        if not (root / MANIFEST_NAME).is_file():
+            raise FileNotFoundError(
+                f"no verified snapshot at {root}; stage the manifest-listed files of {MODEL_ID} at "
+                f"{MODEL_REVISION} into it (allow_download=True fetches the missing ones)"
+            )
+        converted = (root / CONVERTED_WEIGHTS_FILE).is_file()
+        stage_missing_files(root, allow_download=allow_download, include_source=not converted)
+        verify_snapshot(root, include_source=not converted)
+        source = "local-snapshot"
         # Refuse invalid snapshots before importing model libraries.
         import torch
-        from transformers import MarianMTModel, MarianTokenizer
+        from transformers import MarianTokenizer
 
+        if not converted:
+            convert_checkpoint(root)
+        verify_converted(root)
         resolved_device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
-        tokenizer = MarianTokenizer.from_pretrained(location, trust_remote_code=False, **kwargs)
-        # Trust boundary (MOD12): the upstream weight file is a pickle (pytorch_model.bin). Its SHA-256 was
-        # checked against the manifest above; use_safetensors=False names that fact, and weights_only=True
-        # makes transformers deserialise with weights_only=True, which refuses arbitrary objects.
-        model = MarianMTModel.from_pretrained(
-            location,
-            dtype=torch.float32,
-            trust_remote_code=False,
-            use_safetensors=False,
-            weights_only=True,
-            **kwargs,
-        )
-        model = model.to(resolved_device).eval()
+        tokenizer = MarianTokenizer.from_pretrained(str(root), trust_remote_code=False, local_files_only=True)
+        # Trust boundary (MOD12): the served weights are the pinned safetensors conversion (no pickle, no
+        # code), strict-loaded into the architecture built from the verified config.json, with the tied
+        # embeddings restored from model.shared.weight. pytorch_model.bin is read only by convert_checkpoint,
+        # through the restricted weights-only unpickler.
+        model = _build_from_config(root)
+        _load_converted(model, root / CONVERTED_WEIGHTS_FILE)
+        model = model.to(torch.float32).to(resolved_device).eval()
         eos_id, pad_id = model.config.eos_token_id, model.config.pad_token_id
 
         def count_tokens(text: str) -> int:
