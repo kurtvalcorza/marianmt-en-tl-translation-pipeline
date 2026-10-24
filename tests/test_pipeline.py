@@ -149,7 +149,7 @@ def test_verify_snapshot_rejects_wrong_identity(tmp_path: Path):
 
 
 def test_from_pretrained_refuses_without_snapshot_or_download(tmp_path: Path):
-    with pytest.raises(FileNotFoundError, match="allow_download=False"):
+    with pytest.raises(FileNotFoundError, match="no verified snapshot"):
         MarianMTTranslationPipeline.from_pretrained(weights_dir=tmp_path, allow_download=False)
 
 
