@@ -138,8 +138,15 @@ TEMPLATE = {
         "served only from that file, and the pickle is not read again. The "
         "corpus is real: the Tatoeba English–Tagalog pairs distributed by OPUS (release v2023-04-12, 8,785 pairs, CC BY 2.0 "
         "FR), fetched as one digest-pinned 312 KB zip. It is the corpus the upstream README reports BLEU 26.6 / chrF 0.577 "
-        "on, and the model's training data predates this release, so the pretrained model is already strong here; the "
-        "adaptation question is whether a small in-domain fine-tuning still moves held-out scores. Both metrics are "
+        "on, so the pretrained model is already strong here; the adaptation question is whether a small in-domain "
+        "fine-tuning still moves held-out scores. **What the checkpoint may already have seen (DAT9):** the model card "
+        "says the checkpoint was trained on `opus+bt` — the OPUS collection plus back-translations — and OPUS distributes "
+        "Tatoeba. The model was released in February 2020, before this v2023-04-12 corpus release, but each Tatoeba "
+        "release keeps the sentences of the earlier ones, so many of the pairs used here, test pairs included, were "
+        "**probably in the checkpoint's training data**. This is inferred from the model card and the OPUS release "
+        "history; no sentence was checked against the training corpus. The split below keeps the fine-tuning data away "
+        "from the test pairs, but it cannot keep the checkpoint's own training data away, so the pretrained scores may be "
+        "inflated by memorisation and are not evidence of quality on unseen English. Both metrics are "
         "implemented in the carried `metrics.py` (corpus chrF and BLEU, sacrebleu-style, not sacrebleu-identical).\n\n"
         "**Environment note:** `sacremoses` is not pinned and not installed, so `MarianTokenizer` prints one "
         "`Recommended: pip install sacremoses.` warning and uses the identity function as its source-side punctuation "
@@ -149,7 +156,7 @@ TEMPLATE = {
         "by the end of this notebook you will be able to:\n\n"
         "1. **Explain** the task as *English text → translation model → Tagalog text*, including what the model does not do.\n"
         "2. **Distinguish** pretrained inference (using the model as published), adaptation (updating some of its parameters on "
-        "example pairs) and evaluation (scoring outputs on sentences it never trained on).\n"
+        "example pairs) and evaluation (scoring outputs on sentences the adaptation never trained on).\n"
         "3. **Compare** a do-nothing baseline, the pretrained model and the adapted model on the same held-out sentences.\n"
         "4. **Interpret** chrF and BLEU alongside your own reading of the translations, and say what each score cannot tell you.\n"
         "5. **Conduct** one controlled experiment — change one meaning-bearing word, hold everything else fixed — and explain its limitations.\n"
@@ -173,8 +180,8 @@ TEMPLATE = {
             "enough, and a GPU (for example Colab's T4) is used automatically when present and is faster. The run downloads "
             "the pinned packages (PyTorch with its CUDA libraries, Transformers) into a separate environment, the 296 MB model "
             "checkpoint from Hugging Face and a 312 KB sentence corpus from OPUS. No account, token or upload is needed. "
-            "Measured: all cells after the downloads took 263 s on a workstation CPU in the recorded pre-flight (2026-09-27); "
-            "the whole run, downloads included, took 267.5 s on a Kaggle T4 GPU the same day. Both records predate the "
+            "Measured: all cells after the downloads took 263 s on a workstation CPU in the recorded pre-flight of blob `08bf3b6b` "
+            "(2026-09-27); the whole run, downloads included, took 267.5 s on a Kaggle T4 GPU the same day (blob `6ae2ce15`). Both records predate the "
             "isolated environment of Section 1, whose one-time setup adds time that depends on your network.\n\n"
             "### How to use this notebook\n\n"
             "1. Open it in Colab and choose **Runtime → Run all**. The default path needs no edits and no restart: Section 1 "
@@ -231,7 +238,7 @@ TEMPLATE = {
         ),
     ],
     "prerequisites": [
-        "- **Runtime:** a fresh **Linux x86_64** runtime (Google Colab, Kaggle or Linux Jupyter). The kernel's own Python version does not matter: Section 1 runs the lesson in a managed CPython 3.12.12 environment built from hash-locked manylinux wheels, and stops with a message on any other platform. The default path runs on CPU (float32) and uses CUDA automatically when available. CPU is adequate: a local pre-flight of this notebook on a workstation CPU (2026-09-27, downloads pre-staged) measured 2.6 s to digest-verify and load the 299 MB snapshot, 27–41 s per pass over the 300-sentence test split with 4 beams, 92 s for the default two-epoch fine-tuning of the last two decoder blocks on 1,200 pairs, and 263 s for all cells. The pinned `torch==2.14.0` packages and the 296 MB checkpoint are the large downloads of the run.",
+        "- **Runtime:** a fresh **Linux x86_64** runtime (Google Colab, Kaggle or Linux Jupyter). The kernel's own Python version does not matter: Section 1 runs the lesson in a managed CPython 3.12.12 environment built from hash-locked manylinux wheels, and stops with a message on any other platform. The default path runs on CPU (float32) and uses CUDA automatically when available. CPU is adequate: a local pre-flight of blob `08bf3b6b` on a workstation CPU (2026-09-27, downloads pre-staged, not re-run here) measured 2.6 s to digest-verify and load the 299 MB snapshot, 27–41 s per pass over the 300-sentence test split with 4 beams, 92 s for the default two-epoch fine-tuning of the last two decoder blocks on 1,200 pairs, and 263 s for all cells. The pinned `torch==2.14.0` packages and the 296 MB checkpoint are the large downloads of the run.",
         "- **Knowledge:** basic Python (variables, lists, dictionaries, running a cell) and basic Colab use. No machine-learning background is assumed; the notebook explains translation models, beam search, fine-tuning, chrF and BLEU where they are used.",
         "- **Data contract:** records are `{id, source, target}` — an English sentence and its Tagalog reference, each 1..4,000 characters, ids matching `[A-Za-z0-9_.:-]{1,64}` and unique. A BYOD file needs **at least 50 and at most 10,002 records with distinct English sources**: at the default 20 % test / 15 % validation split, 50 is the fewest that gives the training, validation and test splits the 8 records each that `validate_dataset` requires, and above 10,002 the test split would exceed `MAX_EVAL_RECORDS` = 2,000, the most `evaluate` scores in one call; Section 4 refuses a file outside these bounds, naming the bound, before any model work (`validate_dataset` on its own accepts 8..20,000 records). Sources are de-duplicated case-insensitively before splitting so the same English sentence never sits in two splits; during training only, sources and targets are truncated to 128 SentencePiece pieces (inference never truncates — it rejects). BYOD accepts CSV, JSON or JSONL in that shape.",
         "- **Validation is structural, not linguistic:** nothing checks that a source is English, that a target is Tagalog, or that a pair is a faithful translation — a misaligned corpus is fine-tuned on without complaint.",
@@ -250,7 +257,9 @@ TEMPLATE = {
                 "**Three splits, three jobs.** The pairs are shuffled with a fixed seed and cut into **training** (1,200 pairs "
                 "the model may learn from), **validation** (200 pairs used only to choose which training epoch to keep) and "
                 "**test** (300 pairs held back for the final comparison). No English sentence appears in two splits, so the "
-                "test score is about sentences the model never trained on. A random split assumes the pairs are roughly "
+                "test score is about sentences the fine-tuning never trained on. They may still be sentences the "
+                "published checkpoint saw in its own training data (see **What the checkpoint may already have seen** "
+                "at the top). A random split assumes the pairs are roughly "
                 "independent; pairs that come from one document or conversation should be split by that grouping instead.\n\n"
                 "**Engineering — what the next cell does.** `fetch_corpus` downloads the pinned Tatoeba en–tl zip from OPUS "
                 "(or reads it from the cache) and refuses a byte-size or SHA-256 mismatch before the archive is opened; "
@@ -633,7 +642,7 @@ The cell then translates the test split with the adapted model and pairs each se
 
 The cell records a verdict — `improved`, `no gain` or `worse` on held-out chrF — instead of stopping, so a legitimate negative result (an experiment that keeps epoch 0, or your own data) still reaches Sections 10–13. On the default sample with every form value at its default, a verdict other than `improved` means this pinned run no longer reproduces the recorded gain; after you change a knob it is simply your result. A verdict is **not** a promise that adaptation always helps.
 
-**CPU and GPU give slightly different adapted numbers.** Training does the same arithmetic in a different floating-point order on a GPU, so the adapted model, and everything computed from it, differs a little by device. The recorded default runs give adapted chrF 59.36 / BLEU 33.75 with 189 of 300 outputs changed on a workstation CPU, and 59.56 / 33.65 with 196 changed on a Kaggle T4 GPU (both 2026-09-27, `torch 2.14.0`); the copy-source and pretrained scores were identical on both. Compare your numbers with the record for your device.
+**CPU and GPU give slightly different adapted numbers.** Training does the same arithmetic in a different floating-point order on a GPU, so the adapted model, and everything computed from it, differs a little by device. Recorded default runs of earlier blobs, not re-run here, give adapted chrF 59.36 / BLEU 33.75 with 189 of 300 outputs changed on a workstation CPU (local pre-flight of blob `08bf3b6b`, 2026-09-27, `torch 2.14.0`), and 59.56 / 33.65 with 196 changed on a T4 GPU (Kaggle run of blob `6ae2ce15`, 2026-09-27, and the Colab run of blob `d50bbae3`, commit `5f63115`, 2026-10-24, identical); the copy-source and pretrained scores were identical on both devices. Compare your numbers with the record for your device.
 
 **What to notice:** the three corpus scores and their shared denominator; how many outputs changed; and that some sentence scores went *down* even if the corpus score went up.
 """
@@ -1022,9 +1031,9 @@ The scaffold you are completing:
 
 The pretrained model already translates Tatoeba-style sentences well — its test BLEU sits near where the upstream README puts it — and a bounded fine-tuning of the last two decoder blocks on 1,200 in-domain pairs lifted held-out chrF by a few points and BLEU by several in the recorded runs, with a 34 MB adapter that reloads to identical translations. Read those gains together with the sentence-level view from Sections 9 and 10: adaptation changes many individual translations, and some of them get worse.
 
-The test split is 300 sentences from one seeded split of one corpus, with no dispersion estimate; the metrics are two reference-based overlap scores (own implementations, not sacrebleu-identical, and neither a human judgement); Tatoeba is short, conversational and already in the model's training lineage; and the controlled activity is seven unreviewed, hand-written probe pairs. So a gain here says the workflow works, not that the adapted model is better on your domain, that it handles long or technical text, or that its fluent output is faithful — a translation can drop a negation, change a number or leave an entity in English and still score well. Fine-tuning on a narrow corpus can also erode the model elsewhere; nothing here measures that.
+The test split is 300 sentences from one seeded split of one corpus, with no dispersion estimate; the metrics are two reference-based overlap scores (own implementations, not sacrebleu-identical, and neither a human judgement); Tatoeba is short, conversational and probably already in the checkpoint's training data (inferred from the model card, not verified), so the pretrained baseline may be inflated by memorisation; and the controlled activity is seven unreviewed, hand-written probe pairs. So a gain here says the workflow works, not that the adapted model is better on your domain, that it handles long or technical text, or that its fluent output is faithful — a translation can drop a negation, change a number or leave an entity in English and still score well. Fine-tuning on a narrow corpus can also erode the model elsewhere; nothing here measures that.
 
-Successful execution proves that the recorded repository revision's pipeline modules, carried in this standalone notebook, can acquire and digest-verify the pinned model snapshot (including its pickle weight file), fetch and digest-verify a real parallel corpus, validate the demonstrated dataset contract without leakage, execute the inference contract and a bounded fine-tuning, evaluate against a trivial baseline and the pretrained model on an independent split, and emit the shown machine-readable artifacts — without the repository being reachable. It does **not** establish benchmark superiority, translation quality on any other domain, a usable acceptance threshold, or production fitness.
+Successful execution proves that the recorded repository revision's pipeline modules, carried in this standalone notebook, can acquire and digest-verify the pinned model snapshot (including its pickle weight file), fetch and digest-verify a real parallel corpus, validate the demonstrated dataset contract without leakage, execute the inference contract and a bounded fine-tuning, evaluate against a trivial baseline and the pretrained model on a split held out from the fine-tuning (not from the checkpoint's own training data), and emit the shown machine-readable artifacts — without the repository being reachable. It does **not** establish benchmark superiority, translation quality on any other domain, a usable acceptance threshold, or production fitness.
 
 ### Before using these translations in practice
 
@@ -1096,17 +1105,29 @@ None of these affects the default path. Change **one** knob, re-run from its cel
 
 ## References
 
-- Repository README: https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/README.md
-- Repository model card: https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/MODEL_CARD.md
-- Weight provenance and the pickle trust boundary: https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/docs/WEIGHTS.md
-- Upstream model: https://huggingface.co/<<MODEL_ID>>
-- Upstream training code: https://github.com/Helsinki-NLP/OPUS-MT-train
-- OPUS-MT — Building open translation services for the World (Tiedemann & Thottingal, EAMT 2020): https://aclanthology.org/2020.eamt-1.61
-- Marian: Fast Neural Machine Translation in C++ (Junczys-Dowmunt et al., ACL 2018): https://arxiv.org/abs/1804.00344
-- Tatoeba en–tl via OPUS (Tiedemann, LREC 2012; corpus release v2023-04-12, CC BY 2.0 FR): https://opus.nlpl.eu/Tatoeba-v2023-04-12.php
-- chrF: character n-gram F-score for automatic MT evaluation (Popović, WMT 2015): https://aclanthology.org/W15-3049
-- BLEU: a method for automatic evaluation of machine translation (Papineni et al., ACL 2002): https://aclanthology.org/P02-1040
-- DIMER Notebook Specification 2.2 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)
+References follow the IEEE style.
+
+[1] J. Tiedemann and S. Thottingal, "OPUS-MT — Building open translation services for the World," in *Proc. 22nd Annu. Conf. Eur. Assoc. Mach. Transl. (EAMT)*, 2020, pp. 479–480. [Online]. Available: https://aclanthology.org/2020.eamt-1.61
+
+[2] M. Junczys-Dowmunt *et al.*, "Marian: Fast neural machine translation in C++," in *Proc. ACL 2018, System Demonstrations*, 2018, pp. 116–121. [Online]. Available: https://arxiv.org/abs/1804.00344
+
+[3] J. Tiedemann, "Parallel data, tools and interfaces in OPUS," in *Proc. 8th Int. Conf. Lang. Resour. Eval. (LREC)*, 2012, pp. 2214–2218 (Tatoeba en–tl, corpus release v2023-04-12, CC BY 2.0 FR). [Online]. Available: https://opus.nlpl.eu/Tatoeba-v2023-04-12.php
+
+[4] M. Popović, "chrF: character n-gram F-score for automatic MT evaluation," in *Proc. 10th WMT*, 2015, pp. 392–395. [Online]. Available: https://aclanthology.org/W15-3049
+
+[5] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu, "BLEU: A method for automatic evaluation of machine translation," in *Proc. 40th Annu. Meet. Assoc. Comput. Linguist. (ACL)*, 2002, pp. 311–318. [Online]. Available: https://aclanthology.org/P02-1040
+
+[6] Helsinki-NLP, "<<MODEL_ID>>," Hugging Face model card. [Online]. Available: https://huggingface.co/<<MODEL_ID>>
+
+[7] Helsinki-NLP, "OPUS-MT-train," upstream training code, GitHub. [Online]. Available: https://github.com/Helsinki-NLP/OPUS-MT-train
+
+[8] K. Valcorza, "marianmt-en-tl-translation-pipeline: README," GitHub. [Online]. Available: https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/README.md
+
+[9] K. Valcorza, "marianmt-en-tl-translation-pipeline: model card," GitHub. [Online]. Available: https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/MODEL_CARD.md
+
+[10] K. Valcorza, "marianmt-en-tl-translation-pipeline: weight provenance and the pickle trust boundary," GitHub. [Online]. Available: https://github.com/kurtvalcorza/marianmt-en-tl-translation-pipeline/blob/main/docs/WEIGHTS.md
+
+[11] DIMER, "DIMER Notebook Specification 2.5 and Model Card Specification 1.1," fleet specifications in the ml-worker repository.
 
 ## AI Assistance Disclosure
 
