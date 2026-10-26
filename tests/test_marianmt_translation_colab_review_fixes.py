@@ -181,15 +181,16 @@ def test_section4_byod_stated_minimum_runs_and_one_less_is_refused(tmp_path, mon
 
 
 def test_section4_byod_path_and_upload_refusals_are_actionable(tmp_path, monkeypatch):
-    with pytest.raises(FileNotFoundError, match="is not a file"):
+    with pytest.raises(ValueError, match="^such.csv: BYOD_PATH .* is not a file") as caught:
         _run_section4(_section4_namespace(tmp_path, monkeypatch), USE_BYOD=True, BYOD_PATH="no/such.csv")
+    assert caught.value.dimer_refusal  # DAT20: a one-line refusal, not a traceback
     monkeypatch.setitem(sys.modules, "google.colab", None)  # no Colab: importing google.colab raises ImportError
-    with pytest.raises(RuntimeError, match="set BYOD_PATH"):
+    with pytest.raises(ValueError, match=r"^\(no file\): .*set BYOD_PATH"):
         _run_section4(_section4_namespace(tmp_path, monkeypatch), USE_BYOD=True, BYOD_PATH="")
     colab = types.ModuleType("google.colab")
     colab.files = types.SimpleNamespace(upload=lambda: {})
     monkeypatch.setitem(sys.modules, "google.colab", colab)
-    with pytest.raises(ValueError, match="upload cancelled or empty"):
+    with pytest.raises(ValueError, match=r"^\(no file\): .*upload cancelled or empty"):
         _run_section4(_section4_namespace(tmp_path, monkeypatch), USE_BYOD=True, BYOD_PATH="")
 
 

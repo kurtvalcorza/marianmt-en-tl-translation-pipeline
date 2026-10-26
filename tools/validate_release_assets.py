@@ -49,7 +49,7 @@ CODE_MARKERS = (
     # MMT-m1: BYOD size bounds checked in Section 4; upload and path refusals are actionable
     "byod_min, byod_max = byod_size_bounds(min_eval_records=MIN_RECORDS)",
     "splits = split_dataset(records, seed=SPLIT_SEED, min_eval_records=MIN_RECORDS)",
-    "raise RuntimeError('USE_BYOD = True but BYOD_PATH is empty and this runtime has no Colab upload dialog: set BYOD_PATH to your CSV, JSON or JSONL file') from None",
+    "raise BYODRefusal('(no file)', 'USE_BYOD = True but BYOD_PATH is empty and this runtime has no Colab upload dialog: set BYOD_PATH to your CSV, JSON or JSONL file and run this cell again') from None",
     "uploaded = files.upload() or {}",
     "corpus_bytes = fetch_corpus(cache_dir='weights/tatoeba-en-tl')",
     "splits = build_sample_dataset(read_corpus_pairs(corpus_bytes), seed=SPLIT_SEED)",
