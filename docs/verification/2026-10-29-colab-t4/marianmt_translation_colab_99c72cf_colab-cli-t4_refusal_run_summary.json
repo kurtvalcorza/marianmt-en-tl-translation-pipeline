@@ -1,0 +1,72 @@
+{
+  "repo": "marianmt-en-tl-translation-pipeline",
+  "sha": "99c72cfe2bef991675d08ef1b95547c50474baaf",
+  "notebook": "tutorials/marianmt_translation_colab.ipynb",
+  "blob": "8bd20e90d4ed2f218022094d32a2223a01c07f99",
+  "gpu": "T4",
+  "session": "suite-marianmt-99c72cf-f2cb",
+  "started_utc": "2026-10-29T15:00:42+00:00",
+  "runner": "Colab CLI `colab exec -f` on a fresh session (not a browser Run all)",
+  "overrides": [
+    {
+      "name": "USE_BYOD",
+      "from": "False",
+      "to": "True"
+    },
+    {
+      "name": "BYOD_PATH",
+      "from": "''",
+      "to": "'/content/sample_data/california_housing_test.csv'"
+    }
+  ],
+  "run_copy_blob": "2c77acdccd92683d581f7f6d6c9ce9a453768c38",
+  "run_copy_sha256": "981ba6181358eecfe3c8e1f4cd419b4894e7d325d31677ebe6346cd75506624f",
+  "run_copy_note": "refusal run: the run copy is the committed notebook with the listed assignment overrides, cut immediately after the refusal cell and re-serialised (nbformat layout); input_unchanged compares against that copy",
+  "truncated_after_cell": "marianmt_translation-20",
+  "refusal_cell_ref": "marianmt_translation-20",
+  "refusal_cell_index": 8,
+  "cells_dropped": 30,
+  "code_cells_dropped": 11,
+  "original_sha256": "0c01f8684655fdb280ac5a153bb0057d8d837ebc8ddbf857771a3f5c3469b7a0",
+  "status": "[suite-marianmt-99c72cf-f2cb] gpu-t4-s-usw4a3-336jmcovfrqx0 | Hardware: T4 | Shape: Standard | Variant: GPU | Status: IDLE",
+  "exec_exit_code": 0,
+  "stopped": true,
+  "stop_verified": true,
+  "wall_s": 94.8,
+  "input_unchanged": true,
+  "executed_file": "marianmt_translation_colab_99c72cf_colab-cli-t4_output.ipynb",
+  "log_cells": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "log_total": 8,
+  "code_cells": 8,
+  "executed_cells": 5,
+  "errors": [
+    {
+      "cell": "marianmt_translation-20",
+      "ename": "IsolatedCellRefusal",
+      "evalue": "california_housing_test.csv: ValueError: CSV is missing columns ['id', 'source', 'target']; fix the file, then run this cell and every cell after it again (the earlier results of this session and their outputs/ files were removed)."
+    }
+  ],
+  "execution_counts": [],
+  "sequential": null,
+  "executed_sha256": "0dbfd255d6b7180cda9a9ac12e8690b9c15493b39bb67f85f0101f1ef59709b9",
+  "log_sequential_complete": true,
+  "mode": "expect_refusal",
+  "refusal_line": "Refused: california_housing_test.csv: ValueError: CSV is missing columns ['id', 'source', 'target']; fix the file, then run this cell and every cell after it again (the earlier results of this session and their outputs/ files were removed).",
+  "halting_cell_index": 8,
+  "halting_cell_id": "marianmt_translation-20",
+  "error_cells": [
+    8
+  ],
+  "refusal_fail_reasons": [],
+  "refusal_ok": true,
+  "verdict": "PASS"
+}
